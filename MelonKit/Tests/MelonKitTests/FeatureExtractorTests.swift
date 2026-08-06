@@ -38,4 +38,49 @@ final class FeatureExtractorTests: XCTestCase {
     func testTooFewSamplesReturnsNil() {
         XCTAssertNil(FeatureExtractor.extract(from: [0.1, 0.2, 0.3], sampleRate: 800))
     }
+
+    func testDecayRateMatchesTheSynthesisedEnvelope() {
+        // The fixture decays at exactly 30 nepers/second. The fitted value should recover it.
+        let signal = SignalFixtures.decayingSine(
+            frequency: 150, decayRate: 30, duration: 0.25, sampleRate: 8000
+        )
+        let features = FeatureExtractor.extract(from: signal, sampleRate: 8000)!
+        XCTAssertEqual(features.decayRatePerSecond, 30, accuracy: 6)
+    }
+
+    func testFasterDecayProducesLargerDecayRate() {
+        let slow = FeatureExtractor.extract(
+            from: SignalFixtures.decayingSine(frequency: 150, decayRate: 10, duration: 0.25, sampleRate: 8000),
+            sampleRate: 8000
+        )!
+        let fast = FeatureExtractor.extract(
+            from: SignalFixtures.decayingSine(frequency: 150, decayRate: 60, duration: 0.25, sampleRate: 8000),
+            sampleRate: 8000
+        )!
+        XCTAssertGreaterThan(fast.decayRatePerSecond, slow.decayRatePerSecond)
+    }
+
+    func testSpectralCentroidSitsNearASingleTone() {
+        let signal = SignalFixtures.decayingSine(
+            frequency: 200, decayRate: 15, duration: 0.25, sampleRate: 8000
+        )
+        let features = FeatureExtractor.extract(from: signal, sampleRate: 8000)!
+        XCTAssertEqual(features.spectralCentroidHz, 200, accuracy: 40)
+    }
+
+    func testLowHeavySignalHasRatioAboveOne() {
+        let signal = SignalFixtures.decayingSine(
+            frequency: 80, decayRate: 15, duration: 0.25, sampleRate: 8000
+        )
+        let features = FeatureExtractor.extract(from: signal, sampleRate: 8000)!
+        XCTAssertGreaterThan(features.lowHighEnergyRatio, 1)
+    }
+
+    func testHighHeavySignalHasRatioBelowOne() {
+        let signal = SignalFixtures.decayingSine(
+            frequency: 320, decayRate: 15, duration: 0.25, sampleRate: 8000
+        )
+        let features = FeatureExtractor.extract(from: signal, sampleRate: 8000)!
+        XCTAssertLessThan(features.lowHighEnergyRatio, 1)
+    }
 }

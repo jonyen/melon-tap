@@ -11,9 +11,9 @@ public enum FeatureExtractor {
 
         return ChannelFeatures(
             peakFrequencyHz: peak,
-            spectralCentroidHz: 0,
-            decayRatePerSecond: 0,
-            lowHighEnergyRatio: 0
+            spectralCentroidHz: spectralCentroid(in: spectrum),
+            decayRatePerSecond: decayRate(of: samples, sampleRate: sampleRate),
+            lowHighEnergyRatio: lowHighEnergyRatio(in: spectrum)
         )
     }
 
@@ -43,5 +43,83 @@ public enum FeatureExtractor {
         let offset = denominator == 0 ? 0 : 0.5 * (left - right) / denominator
 
         return (Float(peakBin) + offset) * spectrum.binWidthHz
+    }
+
+    /// Magnitude-weighted mean frequency across the analysis band.
+    static func spectralCentroid(in spectrum: Spectrum) -> Float {
+        let range = spectrum.binRange(
+            fromHz: AnalysisConstants.bandLowHz,
+            toHz: AnalysisConstants.bandHighHz
+        )
+        guard !range.isEmpty else { return 0 }
+
+        var weighted: Float = 0
+        var total: Float = 0
+        for bin in range {
+            let magnitude = spectrum.magnitudes[bin]
+            weighted += spectrum.frequency(ofBin: bin) * magnitude
+            total += magnitude
+        }
+        return total > 0 ? weighted / total : 0
+    }
+
+    /// Energy below the sub-band split over energy above it.
+    static func lowHighEnergyRatio(in spectrum: Spectrum) -> Float {
+        func energy(_ range: Range<Int>) -> Float {
+            range.reduce(Float(0)) { $0 + spectrum.magnitudes[$1] * spectrum.magnitudes[$1] }
+        }
+
+        let low = energy(spectrum.binRange(
+            fromHz: AnalysisConstants.bandLowHz,
+            toHz: AnalysisConstants.subBandSplitHz
+        ))
+        let high = energy(spectrum.binRange(
+            fromHz: AnalysisConstants.subBandSplitHz,
+            toHz: AnalysisConstants.bandHighHz
+        ))
+
+        // Guard the division. A window with no high-band energy at all is reported at the
+        // top of the reference range rather than as infinity.
+        guard high > 0 else { return AnalysisConstants.lowHighRatioReferenceRange.upperBound }
+        return low / high
+    }
+
+    /// Fits a straight line to the log of frame RMS and returns its negated slope, so that
+    /// a faster-fading signal yields a larger number. Frames before the loudest one are
+    /// discarded — the attack is not part of the decay.
+    static func decayRate(of samples: [Float], sampleRate: Double) -> Float {
+        let frameLength = max(8, Int(AnalysisConstants.onsetFrameSeconds * sampleRate))
+        let hop = max(4, Int(AnalysisConstants.onsetHopSeconds * sampleRate))
+        guard samples.count >= frameLength * 3 else { return 0 }
+
+        var times: [Float] = []
+        var logEnergies: [Float] = []
+        var start = 0
+        while start + frameLength <= samples.count {
+            let frame = Array(samples[start..<(start + frameLength)])
+            var rms: Float = 0
+            vDSP_rmsqv(frame, 1, &rms, vDSP_Length(frameLength))
+            if rms > 1e-7 {
+                times.append(Float(Double(start) / sampleRate))
+                logEnergies.append(log(rms))
+            }
+            start += hop
+        }
+
+        guard let loudestIndex = logEnergies.indices.max(by: { logEnergies[$0] < logEnergies[$1] }),
+              logEnergies.count - loudestIndex >= 3 else { return 0 }
+
+        let x = Array(times[loudestIndex...])
+        let y = Array(logEnergies[loudestIndex...])
+        let n = Float(x.count)
+        let sumX = x.reduce(0, +)
+        let sumY = y.reduce(0, +)
+        let sumXY = zip(x, y).reduce(Float(0)) { $0 + $1.0 * $1.1 }
+        let sumXX = x.reduce(Float(0)) { $0 + $1 * $1 }
+        let denominator = n * sumXX - sumX * sumX
+        guard denominator != 0 else { return 0 }
+
+        let slope = (n * sumXY - sumX * sumY) / denominator
+        return max(0, -slope)
     }
 }
