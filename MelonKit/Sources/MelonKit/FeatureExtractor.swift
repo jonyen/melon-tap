@@ -88,9 +88,9 @@ public enum FeatureExtractor {
     /// a faster-fading signal yields a larger number. Frames before the loudest one are
     /// discarded — the attack is not part of the decay.
     static func decayRate(of samples: [Float], sampleRate: Double) -> Float {
-        let frameLength = max(8, Int(AnalysisConstants.onsetFrameSeconds * sampleRate))
-        let hop = max(4, Int(AnalysisConstants.onsetHopSeconds * sampleRate))
-        guard samples.count >= frameLength * 3 else { return 0 }
+        let frameLength = max(AnalysisConstants.minimumFrameLengthSamples, Int(AnalysisConstants.onsetFrameSeconds * sampleRate))
+        let hop = max(AnalysisConstants.minimumHopSamples, Int(AnalysisConstants.onsetHopSeconds * sampleRate))
+        guard samples.count >= frameLength * AnalysisConstants.decayMinimumFitPoints else { return 0 }
 
         var times: [Float] = []
         var logEnergies: [Float] = []
@@ -99,7 +99,7 @@ public enum FeatureExtractor {
             let frame = Array(samples[start..<(start + frameLength)])
             var rms: Float = 0
             vDSP_rmsqv(frame, 1, &rms, vDSP_Length(frameLength))
-            if rms > 1e-7 {
+            if rms > AnalysisConstants.decayRmsFloor {
                 times.append(Float(Double(start) / sampleRate))
                 logEnergies.append(log(rms))
             }
@@ -107,7 +107,7 @@ public enum FeatureExtractor {
         }
 
         guard let loudestIndex = logEnergies.indices.max(by: { logEnergies[$0] < logEnergies[$1] }),
-              logEnergies.count - loudestIndex >= 3 else { return 0 }
+              logEnergies.count - loudestIndex >= AnalysisConstants.decayMinimumFitPoints else { return 0 }
 
         let x = Array(times[loudestIndex...])
         let y = Array(logEnergies[loudestIndex...])

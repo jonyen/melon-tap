@@ -34,6 +34,20 @@ public enum AnalysisConstants {
     /// Length of signal analysed after each onset, in seconds.
     public static let tapWindowSeconds: Double = 0.25
 
+    // MARK: Decay analysis
+
+    /// Minimum frame length for RMS calculation, in samples. Floors the computed length to avoid tiny frames.
+    public static let minimumFrameLengthSamples: Int = 8
+
+    /// Minimum hop between successive RMS frames, in samples. Floors the computed hop to avoid zero-width steps.
+    public static let minimumHopSamples: Int = 4
+
+    /// Silence threshold for frame energy. Frames with RMS below this are excluded from decay analysis.
+    public static let decayRmsFloor: Float = 1e-7
+
+    /// Minimum fit points for decay linear regression. Requires at least this many frames after the peak to ensure a valid fit.
+    public static let decayMinimumFitPoints: Int = 3
+
     // MARK: Capture
 
     /// Total capture duration on the Watch, in seconds.
