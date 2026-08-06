@@ -26,7 +26,7 @@ public struct PhysicsScorer: RipenessScorer {
         }
         let median = medianValue(usable.map(\.score))
         let keptIndices: [Int]
-        if usable.count >= 3 {
+        if usable.count >= AnalysisConstants.requiredTapCount {
             let worst = usable.max(by: { abs($0.score - median) < abs($1.score - median) })!
             keptIndices = usable.map(\.index).filter { $0 != worst.index }
         } else {
