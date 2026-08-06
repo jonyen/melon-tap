@@ -12,7 +12,7 @@ public struct Spectrum: Sendable {
 
     /// Returns nil when the input is too short to transform meaningfully (fewer than 16 samples).
     public init?(samples: [Float], sampleRate: Double) {
-        guard samples.count >= 16, sampleRate > 0 else { return nil }
+        guard samples.count >= AnalysisConstants.minimumSpectrumSamples, sampleRate > 0 else { return nil }
 
         // Zero-pad up to a power of two. Padding preserves every input sample, unlike truncating,
         // and finer bin spacing costs nothing here.
@@ -40,13 +40,11 @@ public struct Spectrum: Sendable {
             splitComplex.imagp.deallocate()
         }
 
-        vDSP_ctoz(
-            unsafeBitCast(windowed, to: UnsafePointer<DSPComplex>.self),
-            2,
-            &splitComplex,
-            1,
-            vDSP_Length(length / 2)
-        )
+        windowed.withUnsafeBufferPointer { buf in
+            buf.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: length / 2) { ptr in
+                vDSP_ctoz(ptr, 2, &splitComplex, 1, vDSP_Length(length / 2))
+            }
+        }
 
         vDSP_fft_zrip(setup, &splitComplex, 1, logLength, Int32(FFT_FORWARD))
 

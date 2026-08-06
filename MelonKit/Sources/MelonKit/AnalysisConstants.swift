@@ -14,6 +14,9 @@ public enum AnalysisConstants {
     /// Boundary between the low and high sub-bands used by the energy ratio feature.
     public static let subBandSplitHz: Float = 150
 
+    /// Shortest window the spectrum transform will accept.
+    public static let minimumSpectrumSamples: Int = 16
+
     // MARK: Onset detection
 
     /// Length of the RMS analysis frame, in seconds.
