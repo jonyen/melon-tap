@@ -70,4 +70,55 @@ final class OnsetDetectorTests: XCTestCase {
         let window = OnsetDetector.window(at: onset, in: samples, sampleRate: 800)
         XCTAssertEqual(window.count, samples.count - 60)
     }
+
+    // MARK: - Regressions found in review
+
+    // The brief's own `threeTaps` fixture (decay rate 40, 0.4 s gaps) does not exercise the
+    // full range this detector has to work across: `AnalysisConstants.decayRateReferenceRange`
+    // permits decay rates from 5 to 80, and real inter-tap timing is not fixed. A prior version
+    // of the threshold statistic collapsed on slow decay with long silent gaps (a genuine
+    // ring-down ripple in short-time energy cleared a near-zero threshold, registering as a
+    // second onset per tap) and, separately, on moderate decay with tight tap spacing (little
+    // true silence in the buffer inflated the threshold past the size of a real attack, missing
+    // every onset). These tests pin both failure modes at both the accelerometer rate and a
+    // microphone rate, so a regression to either statistic trips a test rather than shipping
+    // silently — the six tests above only exercise one point in this space.
+
+    /// Builds three taps separated by silence at an arbitrary decay rate, gap, and sample rate.
+    private func threeTapsCustom(
+        decayRate: Float, gapSeconds: Double, sampleRate: Double
+    ) -> (samples: [Float], starts: [Int]) {
+        let tap = SignalFixtures.decayingSine(
+            frequency: 120, decayRate: decayRate, duration: 0.2, sampleRate: sampleRate
+        )
+        let gap = SignalFixtures.silence(count: Int(gapSeconds * sampleRate))
+        let (samples, starts) = SignalFixtures.concatenated([gap, tap, gap, tap, gap, tap])
+        return (samples, [starts[1], starts[3], starts[5]])
+    }
+
+    func testDoesNotDoubleCountRingRippleWithSlowDecayAndLongGaps_AccelerometerRate() {
+        // decay rate 5 is the slow end of decayRateReferenceRange; a 1.0 s gap gives the
+        // ring-down plenty of room to ripple before the next tap starts.
+        let (samples, _) = threeTapsCustom(decayRate: 5, gapSeconds: 1.0, sampleRate: 800)
+        XCTAssertEqual(OnsetDetector.detect(in: samples, sampleRate: 800).count, 3)
+    }
+
+    func testDoesNotDoubleCountRingRippleWithSlowDecayAndLongGaps_MicrophoneRate() {
+        let sampleRate: Double = 44100
+        let (samples, _) = threeTapsCustom(decayRate: 5, gapSeconds: 1.0, sampleRate: sampleRate)
+        XCTAssertEqual(OnsetDetector.detect(in: samples, sampleRate: sampleRate).count, 3)
+    }
+
+    func testFindsTapsWithModerateDecayAndTightSpacing_AccelerometerRate() {
+        // decay rate 8 barely thins the tap out within 0.2 s, and a 0.1 s gap leaves almost no
+        // true silence in the buffer to establish an ambient floor from.
+        let (samples, _) = threeTapsCustom(decayRate: 8, gapSeconds: 0.1, sampleRate: 800)
+        XCTAssertEqual(OnsetDetector.detect(in: samples, sampleRate: 800).count, 3)
+    }
+
+    func testFindsTapsWithModerateDecayAndTightSpacing_MicrophoneRate() {
+        let sampleRate: Double = 44100
+        let (samples, _) = threeTapsCustom(decayRate: 8, gapSeconds: 0.1, sampleRate: sampleRate)
+        XCTAssertEqual(OnsetDetector.detect(in: samples, sampleRate: sampleRate).count, 3)
+    }
 }

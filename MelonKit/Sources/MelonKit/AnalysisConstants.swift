@@ -25,8 +25,15 @@ public enum AnalysisConstants {
     /// Hop between successive RMS frames, in seconds.
     public static let onsetHopSeconds: Double = 0.0025
 
-    /// An onset must exceed the median frame energy by this many median-absolute-deviations.
-    public static let onsetThresholdFactor: Float = 6
+    /// An onset's energy rise must exceed the median frame-to-frame energy step by this many
+    /// median-absolute-deviations of that step size to register as a tap attack. Calibrated
+    /// (not the original 6) by sweeping synthetic taps across the full decayRateReferenceRange
+    /// and a wide range of inter-tap gaps at both 800 Hz and 44.1 kHz, plus repeated
+    /// capture-length pure-noise buffers at several amplitudes and seeds: 6 let noise-driven
+    /// jitter through unpredictably as buffer length grew (more frames means more chances for a
+    /// rare exceedance), 7 was still inconsistent, and 8 was the smallest factor with zero false
+    /// positives across that noise sweep while still catching every synthetic tap in the grid.
+    public static let onsetThresholdFactor: Float = 8
 
     /// Minimum time between two accepted onsets. Rejects the ring-out of a tap being read as a second tap.
     public static let onsetMinimumSeparationSeconds: Double = 0.12

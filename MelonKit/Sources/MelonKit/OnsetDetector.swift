@@ -50,31 +50,50 @@ public enum OnsetDetector {
             rises[i] = max(0, energies[i] - energies[i - 1])
         }
 
-        // Adaptive threshold from the median absolute deviation of the frame energies
-        // themselves, not of the rectified rises. The rise series is exact zero at every
-        // frame whose energy fell (a decaying frame contributes nothing under rectification),
-        // so roughly half its entries are hard zeros. That zero mass sits at the rise series'
-        // own median, collapsing both its median and its MAD toward zero — a threshold
-        // derived from the rises would then be cleared by ordinary noise jitter almost
-        // everywhere. Frame energies (RMS magnitudes) carry no such zero-inflation, so their
-        // MAD is a stable estimate of the ambient noise floor's scale; a rise must clear a
-        // multiple of that scale to count as a real onset.
-        let sortedEnergies = energies.sorted()
-        let medianEnergy = sortedEnergies[sortedEnergies.count / 2]
-        let energyDeviations = energies.map { abs($0 - medianEnergy) }.sorted()
-        let energyDeviation = max(energyDeviations[energyDeviations.count / 2], 1e-6)
-        let threshold = AnalysisConstants.onsetThresholdFactor * energyDeviation
+        // Adaptive threshold from the median absolute deviation of the *unrectified*
+        // frame-to-frame energy steps (both rises and falls together, signed difference then
+        // magnituded). Two more obvious choices were tried first and both collapse:
+        //   - MAD of the rectified rises: exact zero on every frame whose energy fell, which
+        //     is close to half the buffer for any decaying signal, not just a silent one. That
+        //     zero mass sits at the series' own median, dragging the median and MAD to zero,
+        //     so the resulting threshold is cleared by ordinary jitter almost everywhere.
+        //   - MAD of the frame energies themselves: not zero-inflated in general, but it
+        //     measures the buffer's overall dynamic range rather than a local step size, so it
+        //     over-estimates "ambient" scale whenever the buffer is signal-heavy (e.g. slow
+        //     decay with tight inter-tap gaps leaves little true silence), making real attacks
+        //     fail to clear it.
+        // The unrectified step magnitude |energies[i] - energies[i-1]| avoids both: it is
+        // essentially never exactly zero for a real decaying or noisy signal (a decay tail
+        // approaches but does not hit exact float32 zero at the decay rates modelled here), so
+        // it isn't zero-inflated, and because it measures a step rather than a level it is
+        // insensitive to the buffer's overall dynamic range.
+        var steps = [Float](repeating: 0, count: energies.count)
+        for i in 1..<energies.count {
+            steps[i] = abs(energies[i] - energies[i - 1])
+        }
+        let sortedSteps = steps.sorted()
+        let medianStep = sortedSteps[sortedSteps.count / 2]
+        let stepDeviations = steps.map { abs($0 - medianStep) }.sorted()
+        let stepDeviation = max(stepDeviations[stepDeviations.count / 2], 1e-6)
+        let threshold = medianStep + AnalysisConstants.onsetThresholdFactor * stepDeviation
 
         // Peak-pick above the threshold, enforcing a minimum separation so that one tap's
-        // ring-out cannot register as a second tap.
+        // ring-out cannot register as a second tap. A candidate must also be the largest rise
+        // within its own minimum-separation neighborhood, not merely larger than its immediate
+        // neighbors: a slow-decaying tap's short-time energy genuinely ripples as the RMS frame
+        // beats against the tap's own carrier cycle, and those ripples can present several
+        // smaller local maxima in a row that each individually clear a single global threshold.
+        // Requiring a candidate to dominate its whole neighborhood — not just its two nearest
+        // frames — suppresses those ripple peaks in favor of the one genuinely large attack.
         let minimumFrameGap = max(1, Int(AnalysisConstants.onsetMinimumSeparationSeconds * sampleRate) / hop)
         var onsets: [Onset] = []
         var lastAcceptedFrame = -minimumFrameGap
 
         for i in 1..<(rises.count - 1) {
-            guard rises[i] > threshold,
-                  rises[i] >= rises[i - 1],
-                  rises[i] >= rises[i + 1],
+            guard rises[i] > threshold else { continue }
+            let windowStart = max(0, i - minimumFrameGap)
+            let windowEnd = min(rises.count, i + minimumFrameGap + 1)
+            guard rises[i] == rises[windowStart..<windowEnd].max(),
                   i - lastAcceptedFrame >= minimumFrameGap else { continue }
             onsets.append(Onset(sampleIndex: frameStarts[i - 1], strength: rises[i] - threshold))
             lastAcceptedFrame = i
