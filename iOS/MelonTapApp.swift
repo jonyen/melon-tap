@@ -43,6 +43,22 @@ struct MelonTapApp: App {
     private func configureSync() {
         let context = container.mainContext
 
+        // `transferFile` and the `sendMessage`/`transferUserInfo` feature payload are independent
+        // WatchConnectivity paths with no ordering guarantee between them, so a raw file can land
+        // in `onFileReceived` before `onMelonReceived` has inserted the melon it belongs to.
+        // Holding it here — keyed by melon id — lets `onMelonReceived` attach it once the melon
+        // row exists, instead of the file being silently unattachable because no Melon matched
+        // yet.
+        var pendingFiles: [UUID: [URL]] = [:]
+
+        func attach(_ url: URL, to melon: Melon) {
+            if url.pathExtension == "caf" {
+                melon.audioFileName = url.lastPathComponent
+            } else {
+                melon.accelerometerFileName = url.lastPathComponent
+            }
+        }
+
         PhoneSyncService.shared.onMelonReceived = { payload in
             do {
                 let existing = try context.fetch(
@@ -89,6 +105,14 @@ struct MelonTapApp: App {
                 }
 
                 context.insert(melon)
+
+                // Attach any raw files that beat this melon's own feature payload here.
+                if let files = pendingFiles.removeValue(forKey: payload.id) {
+                    for url in files {
+                        attach(url, to: melon)
+                    }
+                }
+
                 try context.save()
             } catch {
                 // A thrown fetch means a duplicate cannot be ruled out; fail closed rather than
@@ -101,12 +125,14 @@ struct MelonTapApp: App {
             let melons = try? context.fetch(
                 FetchDescriptor<Melon>(predicate: #Predicate { $0.id == id })
             )
-            guard let melon = melons?.first else { return }
-            if url.pathExtension == "caf" {
-                melon.audioFileName = url.lastPathComponent
-            } else {
-                melon.accelerometerFileName = url.lastPathComponent
+            guard let melon = melons?.first else {
+                // The melon's feature message has not arrived (or been persisted) yet. Hold the
+                // file so `onMelonReceived` can attach it once the row exists, rather than
+                // dropping it because no Melon matched.
+                pendingFiles[id, default: []].append(url)
+                return
             }
+            attach(url, to: melon)
             do {
                 try context.save()
             } catch {

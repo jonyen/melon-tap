@@ -56,6 +56,11 @@ final class Melon {
     }
 
     static func make(from payload: MelonPayload) -> Melon {
+        // The payload no longer carries file names: `sendMessage`/`transferUserInfo` deliver this
+        // payload immediately and independently of `transferFile`, so a name copied from here
+        // would be non-nil the moment the melon is persisted whether or not the raw file ever
+        // arrives. `audioFileName`/`accelerometerFileName` are set only in `onFileReceived`, once
+        // the file has actually landed — see `MelonTapApp.configureSync()`.
         Melon(
             id: payload.id,
             capturedAt: payload.capturedAt,
@@ -63,8 +68,8 @@ final class Melon {
             scoreBreakdown: payload.scoreBreakdown,
             tapsUsed: payload.tapsUsed,
             tapsData: (try? JSONEncoder().encode(payload.taps)) ?? Data(),
-            audioFileName: payload.audioFileName,
-            accelerometerFileName: payload.accelerometerFileName
+            audioFileName: nil,
+            accelerometerFileName: nil
         )
     }
 }

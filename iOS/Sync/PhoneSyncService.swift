@@ -17,8 +17,6 @@ struct MelonPayload: Codable, Identifiable, Sendable {
     let scoreValue: Float
     let scoreBreakdown: [String: Float]
     let tapsUsed: Int
-    let audioFileName: String?
-    let accelerometerFileName: String?
 }
 
 /// Receives melons from the Watch. Delivers payloads through `onMelonReceived` so that the

@@ -16,9 +16,6 @@ struct MelonPayload: Codable, Identifiable, Sendable {
     let scoreValue: Float
     let scoreBreakdown: [String: Float]
     let tapsUsed: Int
-    /// File names only. The files themselves arrive separately via `transferFile`.
-    let audioFileName: String?
-    let accelerometerFileName: String?
 }
 
 /// Sends scored melons to the phone. Features go immediately; raw files go opportunistically.
@@ -68,9 +65,7 @@ final class WatchSyncService: NSObject, WCSessionDelegate {
             taps: melon.taps,
             scoreValue: melon.score.value,
             scoreBreakdown: melon.score.breakdown,
-            tapsUsed: melon.score.tapsUsed,
-            audioFileName: melon.audioFileURL?.lastPathComponent,
-            accelerometerFileName: melon.accelerometerFileURL?.lastPathComponent
+            tapsUsed: melon.score.tapsUsed
         )
 
         // The feature message and the raw file transfers below are independent paths: a failure
