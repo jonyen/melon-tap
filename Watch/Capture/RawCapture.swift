@@ -22,6 +22,10 @@ enum CaptureError: LocalizedError, Equatable {
     case healthKitDenied
     case microphoneDenied
     case bothChannelsFailed
+    /// A failure that isn't one of the specific, expected cases above — a transient CoreMotion
+    /// delivery error, an audio-session conflict, task cancellation, and so on. Carries the
+    /// underlying error's own description rather than guessing which specific case applies.
+    case other(String)
 
     var errorDescription: String? {
         switch self {
@@ -33,6 +37,8 @@ enum CaptureError: LocalizedError, Equatable {
             return "Microphone access denied. Recording vibration only."
         case .bothChannelsFailed:
             return "Could not record. Grant permissions in Watch → Melon Tap on your iPhone."
+        case .other(let message):
+            return message
         }
     }
 }

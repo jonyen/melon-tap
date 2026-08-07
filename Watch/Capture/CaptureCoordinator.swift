@@ -66,8 +66,14 @@ final class CaptureCoordinator {
         // Recording them one after another (open gate, await the accelerometer to finish, then
         // await the microphone to finish) would have the user tap during one four-second window
         // and again during an unrelated later one; the onset index conversion in `analyse`
-        // assumes both channels started at approximately the same instant, and only concurrent
-        // recording provides that.
+        // assumes both channels started at approximately the same instant. Declaring both
+        // `async let` bindings before awaiting either starts both `record(duration:)` calls
+        // before either one's four-second body runs, so the skew between them is bounded by
+        // each recorder's own (short, synchronous) setup work rather than by capture duration —
+        // not a guarantee of true parallel execution, since both recorders are `@MainActor` and
+        // so interleave on the same serial executor at suspension points. How small the
+        // resulting skew is in practice is a hardware question, answered by on-device testing,
+        // not by this comment.
         async let accelOutcome = attemptAccelerometer(gateOpened: gateOpened)
         async let micOutcome = attemptMicrophone()
         let (accelResultOutcome, micResultOutcome) = await (accelOutcome, micOutcome)
@@ -118,7 +124,11 @@ final class CaptureCoordinator {
         } catch let error as CaptureError {
             return .failure(error)
         } catch {
-            return .failure(.highRateMotionUnavailable)
+            // Not one of AccelerometerRecorder's documented throws (it only throws
+            // .highRateMotionUnavailable) — a transient CoreMotion delivery error or task
+            // cancellation, say. Preserve what actually happened instead of guessing it was a
+            // hardware-support problem.
+            return .failure(.other(error.localizedDescription))
         }
     }
 
@@ -128,7 +138,11 @@ final class CaptureCoordinator {
         } catch let error as CaptureError {
             return .failure(error)
         } catch {
-            return .failure(.microphoneDenied)
+            // Not one of MicrophoneRecorder's documented throws (it only throws
+            // .microphoneDenied) — an audio-session conflict from engine.start(), a
+            // Task.sleep cancellation, say. Preserve what actually happened instead of
+            // guessing it was a permission problem.
+            return .failure(.other(error.localizedDescription))
         }
     }
 
