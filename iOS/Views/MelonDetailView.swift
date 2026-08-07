@@ -4,7 +4,8 @@ import SwiftUI
 struct MelonDetailView: View {
 
     @Environment(\.modelContext) private var context
-    @Bindable var melon: Melon
+    @Environment(\.scenePhase) private var scenePhase
+    let melon: Melon
 
     var body: some View {
         Form {
@@ -43,13 +44,15 @@ struct MelonDetailView: View {
                 }
                 // `axis: .vertical` makes this a multi-line field, and on a multi-line field the
                 // Return key inserts a newline instead of triggering `onSubmit` — so a save that
-                // only happened in `onSubmit` would never fire here. Saving in the binding's
-                // setter, on every edit, is what actually gets the note to disk.
+                // only happened in `onSubmit` would never fire here. The setter still needs to
+                // update `melon.note` on every keystroke so the field stays live, but the actual
+                // `context.save()` (a SQLite write that also notifies every `@Query` observer in
+                // the app) is deferred to `onDisappear`/backgrounding below, not fired per
+                // character.
                 TextField("Note", text: Binding(
                     get: { melon.note ?? "" },
                     set: { newValue in
                         melon.note = newValue.isEmpty ? nil : newValue
-                        saveNote()
                     }
                 ), axis: .vertical)
             }
@@ -61,6 +64,12 @@ struct MelonDetailView: View {
         }
         .navigationTitle("Melon")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { saveNote() }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .inactive || newPhase == .background {
+                saveNote()
+            }
+        }
     }
 
     private func saveOutcome() {
