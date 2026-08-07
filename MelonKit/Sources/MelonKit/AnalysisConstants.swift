@@ -17,6 +17,17 @@ public enum AnalysisConstants {
     /// Shortest window the spectrum transform will accept.
     public static let minimumSpectrumSamples: Int = 16
 
+    /// Stand-in for "no high-band energy at all" in `FeatureExtractor.lowHighEnergyRatio`.
+    /// Mathematically the ratio is infinite there, and `Float.infinity` would report that
+    /// directly — but `ChannelFeatures` crosses the Watch-to-phone wire as JSON, and
+    /// `JSONEncoder`'s default `nonConformingFloatEncodingStrategy` is `.throw`, so an infinite
+    /// value silently drops that melon's whole feature message in `WatchSyncService.transmit`.
+    /// Only needs to sit comfortably above every reference range's upper bound (currently
+    /// `lowHighRatioReferenceRange`'s 6) for `PhysicsScorer.normalise` to clamp it to 1.0 exactly
+    /// as `.infinity` did — chosen independently of that range's value, not equal to it, so a
+    /// scorer retune still cannot silently change what a degenerate window measures.
+    public static let highBandSilenceRatioSentinel: Float = 1_000_000
+
     // MARK: Onset detection
 
     /// Length of the RMS analysis frame, in seconds.

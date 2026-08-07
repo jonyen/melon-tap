@@ -78,15 +78,15 @@ public enum FeatureExtractor {
             toHz: AnalysisConstants.bandHighHz
         ))
 
-        // A window with no high-band energy at all has a mathematically infinite ratio; report
-        // that directly rather than borrowing the scorer's normalisation range as a stand-in.
-        // This extractor has no business knowing what range `PhysicsScorer` treats as "maximally
-        // ripe" — that range is retuned independently of this file, and using it here as a
-        // sentinel would let a scorer retune silently change what a degenerate window measures.
-        // `PhysicsScorer.normalise` already clamps any value at or above its reference range's
-        // upper bound to 1.0, so `.infinity` reaches the same scored outcome the old sentinel
-        // did, without the extractor depending on the scorer's constant to get there.
-        guard high > 0 else { return .infinity }
+        // A window with no high-band energy at all has a mathematically infinite ratio.
+        // `Float.infinity` would report that directly, but `ChannelFeatures` crosses the
+        // Watch-to-phone wire as JSON, and `JSONEncoder`'s default
+        // `nonConformingFloatEncodingStrategy` is `.throw` — an infinite value here would
+        // silently drop that melon's whole feature message in transit. Report a large finite
+        // sentinel instead; see `AnalysisConstants.highBandSilenceRatioSentinel` for why its
+        // specific value is safe to use here without coupling this extractor to the scorer's
+        // normalisation range.
+        guard high > 0 else { return AnalysisConstants.highBandSilenceRatioSentinel }
         return low / high
     }
 

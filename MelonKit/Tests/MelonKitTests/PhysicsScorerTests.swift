@@ -99,6 +99,20 @@ final class PhysicsScorerTests: XCTestCase {
         XCTAssertNil(score.breakdown["accelerometer"])
     }
 
+    /// The finite sentinel `FeatureExtractor` reports for a degenerate, high-band-silent window
+    /// (see `AnalysisConstants.highBandSilenceRatioSentinel`) must score identically to
+    /// `Float.infinity`, the value it replaced (M4 regression fix): both sit at or above
+    /// `lowHighRatioReferenceRange`'s upper bound, so `normalise` clamps either one to 1.0, and
+    /// the sentinel does not change scored output.
+    func testHighBandSilenceSentinelScoresSameAsInfinity() throws {
+        let withSentinel = try scorer.score(taps: taps(
+            peak: 150, decay: 40, ratio: AnalysisConstants.highBandSilenceRatioSentinel
+        ))
+        let withInfinity = try scorer.score(taps: taps(peak: 150, decay: 40, ratio: .infinity))
+        XCTAssertEqual(withSentinel.value, withInfinity.value)
+        XCTAssertEqual(withSentinel.breakdown["accelerometer.lowHighRatio"], 1.0)
+    }
+
     func testBreakdownExposesEveryContributingFeature() throws {
         let score = try scorer.score(taps: taps(peak: 120, decay: 40, ratio: 3))
         for key in ["microphone", "accelerometer",

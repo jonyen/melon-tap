@@ -86,16 +86,25 @@ final class FeatureExtractorTests: XCTestCase {
 
     // MARK: - Regression found in review (M4)
 
-    /// A window with zero high-band energy has a mathematically infinite low/high ratio.
-    /// `lowHighEnergyRatio` must report that as `.infinity` itself, a value that means one thing
-    /// on its own, rather than borrowing `AnalysisConstants.lowHighRatioReferenceRange.upperBound`
-    /// — the *scorer's* normalisation constant — as a stand-in. `PhysicsScorer.normalise` clamps
-    /// any value at or above that upper bound to 1.0 regardless, so scored output is unaffected;
-    /// this test pins the extractor's own output, which is what would silently change if a future
-    /// retune of the scorer's reference range were allowed to leak back into this layer.
-    func testLowHighRatioOfWindowWithNoHighBandEnergyIsInfinite() {
+    /// A window with zero high-band energy has a mathematically infinite low/high ratio, but
+    /// `lowHighEnergyRatio` must not report `Float.infinity` itself: `ChannelFeatures` crosses
+    /// the Watch-to-phone wire as JSON, and `JSONEncoder`'s default
+    /// `nonConformingFloatEncodingStrategy` is `.throw`, so an infinite value there would
+    /// silently drop the whole feature message. It reports
+    /// `AnalysisConstants.highBandSilenceRatioSentinel` instead — a large finite stand-in chosen
+    /// independently of `AnalysisConstants.lowHighRatioReferenceRange.upperBound` (the *scorer's*
+    /// normalisation constant), so a future retune of the scorer's reference range cannot
+    /// silently change what a degenerate window measures. `PhysicsScorer.normalise` clamps any
+    /// value at or above that upper bound to 1.0 regardless, so scored output is unaffected by
+    /// which finite value is used, as long as it's large enough — see
+    /// `PhysicsScorerTests.testHighBandSilenceSentinelScoresSameAsInfinity` for that clamping
+    /// behaviour pinned end to end.
+    func testLowHighRatioOfWindowWithNoHighBandEnergyIsSentinel() {
         let silence = SignalFixtures.silence(count: 256)
         let spectrum = Spectrum(samples: silence, sampleRate: 8000)!
-        XCTAssertEqual(FeatureExtractor.lowHighEnergyRatio(in: spectrum), Float.infinity)
+        XCTAssertEqual(
+            FeatureExtractor.lowHighEnergyRatio(in: spectrum),
+            AnalysisConstants.highBandSilenceRatioSentinel
+        )
     }
 }
