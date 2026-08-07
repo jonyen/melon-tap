@@ -19,6 +19,11 @@ final class AccelerometerRecorder {
     private let manager = CMBatchedSensorManager()
 
     /// Records for `duration` seconds. Requires an open `WorkoutSessionGate`.
+    ///
+    /// The batched stream delivers roughly once per second, and the deadline is only checked
+    /// between batches, so the returned sample count can run up to one batch interval
+    /// (~1 second) past `duration`. Callers must not assume this channel's length matches the
+    /// microphone channel's.
     func record(duration: Double) async throws -> (samples: [Float], sampleRate: Double) {
         guard Self.isSupported else { throw CaptureError.highRateMotionUnavailable }
 
@@ -27,6 +32,11 @@ final class AccelerometerRecorder {
         var lastTimestamp: TimeInterval?
 
         let updates = manager.accelerometerUpdates()
+        // Guarantees the 800 Hz sensor stream is stopped on every exit from here on — a
+        // thrown error from the async sequence, or Task cancellation — not just the normal
+        // `break` below. A leaked stream is a battery drain, the same failure mode an unended
+        // workout session would be.
+        defer { manager.stopAccelerometerUpdates() }
         let deadline = Date().addingTimeInterval(duration)
 
         for try await batch in updates {
@@ -40,7 +50,6 @@ final class AccelerometerRecorder {
             }
             if Date() >= deadline { break }
         }
-        manager.stopAccelerometerUpdates()
 
         // Derive the true rate from the timestamps rather than trusting the nominal 800 Hz.
         // A wrong rate would shift every frequency the extractor reports.

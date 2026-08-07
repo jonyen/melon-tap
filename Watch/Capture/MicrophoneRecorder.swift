@@ -12,6 +12,9 @@ final class MicrophoneRecorder {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.record, mode: .measurement)
         try session.setActive(true)
+        // Guarantees the session is deactivated on every exit from here on — including the
+        // permission-denied throw below — not just the happy path.
+        defer { try? session.setActive(false) }
 
         // AVAudioApplication is the watchOS 11 permission API. AVAudioSession.requestRecordPermission
         // is deprecated and would emit a warning.
@@ -28,6 +31,8 @@ final class MicrophoneRecorder {
             .appendingPathComponent("melon-\(UUID().uuidString).caf")
         let file = try AVAudioFile(forWriting: url, settings: format.settings)
 
+        // Mutated from the tap's render-thread callback below, read here only after
+        // `removeTap` has synchronously guaranteed no further callback invocations.
         var samples: [Float] = []
         samples.reserveCapacity(Int(duration * sampleRate))
 
@@ -40,14 +45,17 @@ final class MicrophoneRecorder {
             guard let channel = buffer.floatChannelData?[0] else { return }
             samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
         }
+        // Guarantees the tap and engine are torn down on every exit from here on — a thrown
+        // error from engine.start(), or Task cancellation during the sleep below — not just
+        // the happy path. An orphaned tap/engine would corrupt the next capture attempt.
+        defer {
+            input.removeTap(onBus: 0)
+            engine.stop()
+        }
 
         engine.prepare()
         try engine.start()
         try await Task.sleep(for: .seconds(duration))
-
-        input.removeTap(onBus: 0)
-        engine.stop()
-        try? session.setActive(false)
 
         return (samples, sampleRate, url)
     }
