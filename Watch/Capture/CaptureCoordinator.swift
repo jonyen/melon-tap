@@ -18,7 +18,14 @@ struct CapturedMelon: Identifiable, Equatable, Sendable {
 
 enum CaptureState: Equatable {
     case idle
-    case recording
+    /// Microphone permission and the workout gate are being resolved. Unbounded on first launch
+    /// (the permission dialog) and up to the gate's own timeout — neither is part of the
+    /// four-second recording window, so this is kept distinct from `.recording` rather than
+    /// folded into it.
+    case preparing
+    /// Both recorders have actually started. Carries the instant they started so the view's
+    /// countdown can anchor to it instead of to whenever the view happens to redraw.
+    case recording(start: Date)
     case analysing
     /// A capture just finished successfully. Carries the melon so the view can show its score
     /// and rank directly, rather than sending the user through the ranking list to find it.
@@ -60,7 +67,7 @@ final class CaptureCoordinator {
     }
 
     func capture() async {
-        state = .recording
+        state = .preparing
         lastWarning = nil
 
         // Resolves microphone permission and warms the audio session before either recorder
@@ -98,6 +105,7 @@ final class CaptureCoordinator {
         // guarantee of true parallel execution: both recorders are `@MainActor` and so interleave
         // on the same serial executor at suspension points. How small the resulting skew is in
         // practice is a hardware question, answered by on-device testing, not by this comment.
+        state = .recording(start: Date())
         async let accelOutcome = attemptAccelerometer(gateOpened: gateOpened)
         async let micOutcome = attemptMicrophone()
         let (accelResultOutcome, micResultOutcome) = await (accelOutcome, micOutcome)

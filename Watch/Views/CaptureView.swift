@@ -12,10 +12,13 @@ struct CaptureView: View {
                 case .idle:
                     captureButton
 
-                case .recording:
+                case .preparing:
+                    ProgressView("Get Ready")
+
+                case .recording(let start):
                     VStack(spacing: 4) {
                         ProgressView(
-                            timerInterval: Date()...Date().addingTimeInterval(AnalysisConstants.captureDurationSeconds)
+                            timerInterval: start...start.addingTimeInterval(AnalysisConstants.captureDurationSeconds)
                         )
                         .progressViewStyle(.circular)
                         Text("Tap 3 times")
