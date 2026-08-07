@@ -1,0 +1,46 @@
+name: MelonTap
+options:
+  bundleIdPrefix: com.jonyen
+  deploymentTarget:
+    iOS: "18.0"
+    watchOS: "11.0"
+  createIntermediateGroups: true
+
+packages:
+  MelonKit:
+    path: MelonKit
+
+targets:
+  MelonTap:
+    type: application
+    platform: iOS
+    sources:
+      - path: iOS
+    dependencies:
+      - package: MelonKit
+      - target: MelonTapWatch
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jonyen.melontap
+        INFOPLIST_FILE: iOS/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_ENTITLEMENTS: iOS/MelonTap.entitlements
+
+  MelonTapWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Watch
+    dependencies:
+      - package: MelonKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jonyen.melontap.watchkitapp
+        INFOPLIST_FILE: Watch/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_ENTITLEMENTS: Watch/MelonTapWatch.entitlements
