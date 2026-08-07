@@ -63,9 +63,22 @@ public enum AnalysisConstants {
     /// Required number of clean taps per melon. Fewer means refuse to score.
     public static let requiredTapCount: Int = 3
 
-    /// A channel's loudest sample must exceed its median sample level by this factor to be
-    /// trusted. Below it, the taps are buried in ambient noise and the channel is discarded.
-    public static let minimumTapToNoiseRatio: Float = 4
+    /// A microphone channel's RMS inside its own detected tap windows must exceed the RMS of the
+    /// rest of its buffer (the room, everything outside those windows) by this factor to be
+    /// trusted. Below it, the taps do not stand out from ambient noise and the channel is
+    /// discarded in favour of the accelerometer.
+    ///
+    /// This replaced a whole-buffer peak/median ratio that could not do the job: for Gaussian
+    /// noise, max/median grows with sample count (≈ sqrt(2·ln n)/0.6745), so it drifted upward
+    /// with capture length rather than staying fixed, and a 4-second noise-only buffer alone
+    /// cleared the old threshold of 4. Windowed RMS vs. room RMS is scale-free — simulated at
+    /// 44.1 kHz over a 4 s buffer with three synthetic taps (decaying sine, sample fixtures as in
+    /// `SignalFixtures`) and additive white noise: a buffer with no real tap signal at all, or a
+    /// tap fully buried under noise as loud as itself, reads 1.0–1.15 regardless of noise level;
+    /// a genuinely usable capture — even in a noisy room, even at the fastest decay rate in
+    /// `decayRateReferenceRange` — reads 1.4 or higher, and a quiet room reads well into the
+    /// double digits. 1.5 sits in the gap between those two clusters with margin on both sides.
+    public static let minimumTapWindowToRoomRmsRatio: Float = 1.5
 
     /// Frame count per `AVAudioEngine` tap buffer while recording the microphone. Larger buffers
     /// reduce callback overhead at the cost of latency between the sound and its capture.

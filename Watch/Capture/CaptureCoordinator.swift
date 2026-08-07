@@ -97,15 +97,6 @@ final class CaptureCoordinator {
             lastWarning = error.errorDescription
         }
 
-        // A store loud enough to bury the taps makes the microphone channel worse than useless,
-        // since it would drag the score toward whatever the room sounds like. Drop it and say so.
-        if let mic = micResult, !Self.hasUsableTapContrast(mic.samples) {
-            micResult = nil
-            lastWarning = accelResult == nil
-                ? "Too noisy here, and no vibration sensor. Try somewhere quieter."
-                : "Too noisy for the microphone. Scoring on vibration alone."
-        }
-
         guard accelResult != nil || micResult != nil else {
             state = .failed(CaptureError.bothChannelsFailed.errorDescription!)
             return
@@ -170,17 +161,46 @@ final class CaptureCoordinator {
             .prefix(AnalysisConstants.requiredTapCount)
             .sorted { $0.sampleIndex < $1.sampleIndex }
 
+        // The microphone stream runs at a different rate, so an onset's sample index must be
+        // converted into that stream's timebase before it can window or be judged for noise.
+        func convert(_ onset: Onset, to sampleRate: Double) -> Onset {
+            let seconds = Double(onset.sampleIndex) / onsetSource.sampleRate
+            let index = Int(seconds * sampleRate)
+            return Onset(sampleIndex: index, strength: onset.strength)
+        }
+
+        var mic = mic
+        // A store loud enough to bury the taps makes the microphone channel worse than useless,
+        // since it would drag the score toward whatever the room sounds like. Whether that's
+        // happening can only be judged after onset detection: it compares the RMS inside the
+        // mic's own tap windows against the RMS of everything else in its buffer (the room),
+        // which — unlike a whole-buffer peak/median ratio — is scale-free and does not drift with
+        // capture length. Drop the channel and say so when its own taps do not stand out from its
+        // own room.
+        if let micChannel = mic {
+            let micOnsets = chosen.map { convert($0, to: micChannel.sampleRate) }
+            if !Self.hasUsableMicrophoneContrast(
+                samples: micChannel.samples, onsets: micOnsets, sampleRate: micChannel.sampleRate
+            ) {
+                mic = nil
+                lastWarning = accel == nil
+                    ? "Too noisy here, and no vibration sensor. Try somewhere quieter."
+                    : "Too noisy for the microphone. Scoring on vibration alone."
+            }
+        }
+
+        guard accel != nil || mic != nil else {
+            state = .failed(CaptureError.bothChannelsFailed.errorDescription!)
+            return
+        }
+
         let taps: [TapFeatures] = chosen.map { onset in
             let accelFeatures = accel.flatMap { channel -> ChannelFeatures? in
                 let window = OnsetDetector.window(at: onset, in: channel.samples, sampleRate: channel.sampleRate)
                 return FeatureExtractor.extract(from: window, sampleRate: channel.sampleRate)
             }
-            // The microphone stream runs at a different rate, so the onset's sample index must be
-            // converted into that stream's timebase before windowing.
             let micFeatures = mic.flatMap { channel -> ChannelFeatures? in
-                let seconds = Double(onset.sampleIndex) / onsetSource.sampleRate
-                let index = Int(seconds * channel.sampleRate)
-                let converted = Onset(sampleIndex: index, strength: onset.strength)
+                let converted = convert(onset, to: channel.sampleRate)
                 let window = OnsetDetector.window(at: converted, in: channel.samples, sampleRate: channel.sampleRate)
                 return FeatureExtractor.extract(from: window, sampleRate: channel.sampleRate)
             }
@@ -208,15 +228,48 @@ final class CaptureCoordinator {
         }
     }
 
-    /// True when the loudest sample stands far enough above the typical sample level that the
-    /// taps are distinguishable from the room.
-    private static func hasUsableTapContrast(_ samples: [Float]) -> Bool {
-        guard samples.count > 32 else { return false }
-        let magnitudes = samples.map(abs)
-        let sorted = magnitudes.sorted()
-        let median = max(sorted[sorted.count / 2], 1e-6)
-        let peak = sorted[sorted.count - 1]
-        return peak / median >= AnalysisConstants.minimumTapToNoiseRatio
+    /// True when a channel's own detected tap windows are louder, in RMS, than the rest of its
+    /// own buffer by at least `AnalysisConstants.minimumTapWindowToRoomRmsRatio`. `onsets` must
+    /// already be in `samples`'s own timebase (see `convert(_:to:)` in `analyse`).
+    ///
+    /// This measures "are the taps above the room" directly, rather than a whole-buffer
+    /// peak/median ratio, which for pure noise grows with sample count instead of staying fixed —
+    /// see the doc comment on `minimumTapWindowToRoomRmsRatio` for the numbers.
+    private static func hasUsableMicrophoneContrast(
+        samples: [Float], onsets: [Onset], sampleRate: Double
+    ) -> Bool {
+        guard !onsets.isEmpty else { return false }
+
+        var inWindow = [Bool](repeating: false, count: samples.count)
+        for onset in onsets {
+            let window = OnsetDetector.window(at: onset, in: samples, sampleRate: sampleRate)
+            let start = min(max(onset.sampleIndex, 0), samples.count)
+            let end = min(start + window.count, samples.count)
+            guard start < end else { continue }
+            for index in start..<end { inWindow[index] = true }
+        }
+
+        var tapSumSquares: Double = 0
+        var tapCount = 0
+        var roomSumSquares: Double = 0
+        var roomCount = 0
+        for (index, sample) in samples.enumerated() {
+            let value = Double(sample)
+            if inWindow[index] {
+                tapSumSquares += value * value
+                tapCount += 1
+            } else {
+                roomSumSquares += value * value
+                roomCount += 1
+            }
+        }
+        // Fewer than 32 room samples means there isn't enough of the buffer left outside the tap
+        // windows to know what the room sounds like — too little evidence to trust the channel.
+        guard tapCount > 0, roomCount > 32 else { return false }
+
+        let tapRms = (tapSumSquares / Double(tapCount)).squareRoot()
+        let roomRms = max((roomSumSquares / Double(roomCount)).squareRoot(), 1e-9)
+        return Float(tapRms / roomRms) >= AnalysisConstants.minimumTapWindowToRoomRmsRatio
     }
 
     /// Persists the raw accelerometer magnitudes so a better extractor can revisit them later.
