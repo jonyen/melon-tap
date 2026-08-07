@@ -4,6 +4,8 @@ import SwiftUI
 @main
 struct MelonTapApp: App {
 
+    @Environment(\.scenePhase) private var scenePhase
+
     private let container: ModelContainer
 
     init() {
@@ -25,6 +27,18 @@ struct MelonTapApp: App {
             }
         }
         .modelContainer(container)
+        .onChange(of: scenePhase) { _, newPhase in
+            // Retry any melon that arrived while the app could not rule out a duplicate (see
+            // `PhoneSyncService.drainReceivedMelons()`) every time the app comes back to the
+            // foreground, not just once at launch — the scene can go active many times over the
+            // app's life, and each is a fresh chance for a transient fetch failure to have
+            // cleared.
+            if newPhase == .active {
+                for payload in PhoneSyncService.shared.drainReceivedMelons() {
+                    PhoneSyncService.shared.onMelonReceived?(payload)
+                }
+            }
+        }
     }
 
     /// Melons arriving from the Watch are grouped primarily by `payload.sessionID`, the user's

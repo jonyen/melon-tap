@@ -58,6 +58,23 @@ final class PhoneSyncService: NSObject, WCSessionDelegate {
         }
     }
 
+    /// Removes and returns every melon received since the last drain.
+    ///
+    /// WatchConnectivity considers a `sendMessage`/`transferUserInfo` delivery complete once
+    /// `onMelonReceived` returns, whether or not it actually persisted anything — so a payload
+    /// that hits `MelonTapApp.configureSync()`'s fail-closed `catch` (a fetch failure that
+    /// leaves a duplicate un-rule-out-able) is otherwise gone for good; the Watch never
+    /// redelivers it. `receivedMelons` already holds every payload that has arrived, so draining
+    /// it here and replaying each through `onMelonReceived` gives that dropped payload another
+    /// chance, at a moment (scene becoming active) when a transient fetch failure is more likely
+    /// to have cleared. Replaying an already-persisted melon is a harmless no-op:
+    /// `onMelonReceived` fetches for an existing row with the same id first and returns early
+    /// when it finds one.
+    func drainReceivedMelons() -> [MelonPayload] {
+        defer { receivedMelons.removeAll() }
+        return receivedMelons
+    }
+
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         handle(message)
     }
