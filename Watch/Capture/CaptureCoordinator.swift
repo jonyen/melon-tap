@@ -3,7 +3,7 @@ import MelonKit
 import Observation
 
 /// One melon as captured and scored on the wrist.
-struct CapturedMelon: Identifiable, Sendable {
+struct CapturedMelon: Identifiable, Equatable, Sendable {
     let id: UUID
     /// The bin visit this melon was captured under. Stamped from `CaptureCoordinator.sessionID`
     /// so the phone can group melons by the user's explicit "New Bin" boundary instead of
@@ -20,6 +20,9 @@ enum CaptureState: Equatable {
     case idle
     case recording
     case analysing
+    /// A capture just finished successfully. Carries the melon so the view can show its score
+    /// and rank directly, rather than sending the user through the ranking list to find it.
+    case scored(CapturedMelon)
     case failed(String)
 }
 
@@ -242,7 +245,7 @@ final class CaptureCoordinator {
             )
             melons.append(captured)
             WatchSyncService.shared.send(captured)
-            state = .idle
+            state = .scored(captured)
         } catch ScoringError.insufficientTaps(let found, let required) {
             state = .failed("Only \(found) of \(required) taps were usable. Try again.")
         } catch {

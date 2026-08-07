@@ -1,3 +1,4 @@
+import MelonKit
 import SwiftUI
 
 struct CaptureView: View {
@@ -9,20 +10,37 @@ struct CaptureView: View {
             VStack(spacing: 12) {
                 switch coordinator.state {
                 case .idle:
-                    Button {
-                        Task { await coordinator.capture() }
-                    } label: {
-                        Label("Tap Melon", systemImage: "waveform")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
+                    captureButton
 
                 case .recording:
-                    ProgressView("Tap 3 times")
+                    VStack(spacing: 4) {
+                        ProgressView(
+                            timerInterval: Date()...Date().addingTimeInterval(AnalysisConstants.captureDurationSeconds)
+                        )
                         .progressViewStyle(.circular)
+                        Text("Tap 3 times")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
 
                 case .analysing:
                     ProgressView("Scoring")
+
+                case .scored(let melon):
+                    VStack(spacing: 4) {
+                        Text(String(format: "%.2f", melon.score.value))
+                            .font(.system(.title, design: .rounded, weight: .bold))
+                        // A safe lookup, not a force unwrap: `melon` was just appended to
+                        // `coordinator.melons` before this state was set, but deriving the rank
+                        // from an index-into-a-just-mutated-collection should not crash the
+                        // capture flow on any future refactor that breaks that ordering.
+                        if let rank = coordinator.ranked.firstIndex(where: { $0.id == melon.id }) {
+                            Text("#\(rank + 1) of \(coordinator.ranked.count)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    captureButton
 
                 case .failed(let message):
                     Text(message)
@@ -56,5 +74,15 @@ struct CaptureView: View {
                 }
             }
         }
+    }
+
+    private var captureButton: some View {
+        Button {
+            Task { await coordinator.capture() }
+        } label: {
+            Label("Tap Melon", systemImage: "waveform")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
     }
 }
