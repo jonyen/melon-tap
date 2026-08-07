@@ -71,6 +71,12 @@ public enum AnalysisConstants {
     /// reduce callback overhead at the cost of latency between the sound and its capture.
     public static let microphoneTapBufferFrames: Int = 4096
 
+    /// How long `WorkoutSessionGate.open()` waits for `HKWorkoutSession` to report `.running`
+    /// (via `HKWorkoutSessionDelegate`) before giving up. `startActivity(with:)` does not
+    /// synchronously start the session, and a session that never transitions — a stuck OS state,
+    /// a revoked entitlement mid-session — must not hang capture forever.
+    public static let workoutSessionStartTimeoutSeconds: Double = 5.0
+
     // MARK: Scoring
 
     /// Peak frequency range used to normalise that feature to 0...1. Lower peak reads as riper.
