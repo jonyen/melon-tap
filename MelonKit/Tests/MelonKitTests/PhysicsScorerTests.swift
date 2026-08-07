@@ -72,6 +72,24 @@ final class PhysicsScorerTests: XCTestCase {
         }
     }
 
+    func testConsistentTapsKeepsAllThree() throws {
+        let score = try scorer.score(taps: taps(peak: 100, decay: 45, ratio: 4))
+        XCTAssertEqual(score.tapsUsed, 3)
+        XCTAssertEqual(score.value, 0.7077, accuracy: 0.001)
+    }
+
+    func testTwoUsableTapsThrowsInsufficientTaps() {
+        let channel = features(peak: 100, decay: 45, ratio: 4)
+        let mostlyEmpty = [
+            TapFeatures(microphone: channel, accelerometer: nil),
+            TapFeatures(microphone: channel, accelerometer: nil),
+            TapFeatures(microphone: nil, accelerometer: nil)
+        ]
+        XCTAssertThrowsError(try scorer.score(taps: mostlyEmpty)) { error in
+            XCTAssertEqual(error as? ScoringError, .insufficientTaps(found: 2, required: 3))
+        }
+    }
+
     func testMicrophoneOnlyStillScores() throws {
         let channel = features(peak: 100, decay: 45, ratio: 4)
         let micOnly = (0..<3).map { _ in TapFeatures(microphone: channel, accelerometer: nil) }

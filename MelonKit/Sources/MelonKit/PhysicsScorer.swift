@@ -15,19 +15,26 @@ public struct PhysicsScorer: RipenessScorer {
         }
 
         let perTap = taps.map { combinedScore(for: $0) }
-        guard perTap.contains(where: { $0 != nil }) else {
-            throw ScoringError.noUsableChannels
-        }
-
-        // Discard the single tap furthest from the median. A mishit or a passing shopping cart
-        // shows up as exactly one bad tap out of three.
         let usable = perTap.enumerated().compactMap { index, value in
             value.map { (index: index, score: $0) }
         }
+        guard !usable.isEmpty else {
+            throw ScoringError.noUsableChannels
+        }
+        guard usable.count >= AnalysisConstants.requiredTapCount else {
+            throw ScoringError.insufficientTaps(
+                found: usable.count,
+                required: AnalysisConstants.requiredTapCount
+            )
+        }
+
+        // Discard the single tap furthest from the median, but only when that deviation is
+        // large enough to look like a real mishit rather than ordinary capture noise. A mishit
+        // or a passing shopping cart shows up as exactly one bad tap out of three.
         let median = medianValue(usable.map(\.score))
+        let worst = usable.max(by: { abs($0.score - median) < abs($1.score - median) })!
         let keptIndices: [Int]
-        if usable.count >= AnalysisConstants.requiredTapCount {
-            let worst = usable.max(by: { abs($0.score - median) < abs($1.score - median) })!
+        if abs(worst.score - median) > AnalysisConstants.outlierDeviationThreshold {
             keptIndices = usable.map(\.index).filter { $0 != worst.index }
         } else {
             keptIndices = usable.map(\.index)

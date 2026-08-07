@@ -87,4 +87,12 @@ public enum AnalysisConstants {
     /// UNVALIDATED: contact vibration is assumed more reliable than the microphone in a noisy store.
     /// Revisit once logged melons have outcome labels.
     public static let accelerometerChannelWeight: Float = 0.65
+
+    /// How far a tap's combined score (itself on the 0...1 scale) must sit from the median of
+    /// the other taps before it is treated as a mishit and dropped. Below this, taps are
+    /// treated as ordinary capture noise and all are kept. Chosen with margin on both sides of
+    /// what's actually observed: three consistent taps deviate by 0, a genuine mishit (e.g. a
+    /// tap caught on the rind edge instead of the flesh) deviates by roughly 0.68 in the
+    /// reference fixture, and 0.15 sits well inside that gap.
+    public static let outlierDeviationThreshold: Float = 0.15
 }
