@@ -13,9 +13,7 @@ struct SessionListView: View {
                     Section(session.startedAt.formatted(date: .abbreviated, time: .shortened)) {
                         ForEach(Array(session.ranked.enumerated()), id: \.element.id) { index, melon in
                             NavigationLink {
-                                // TASK 11 STUB: MelonDetailView does not exist until Task 11.
-                                // Restore this to `MelonDetailView(melon: melon)` when it lands.
-                                Text(String(format: "%.2f", melon.scoreValue))
+                                MelonDetailView(melon: melon)
                             } label: {
                                 HStack {
                                     Text("\(index + 1)")
