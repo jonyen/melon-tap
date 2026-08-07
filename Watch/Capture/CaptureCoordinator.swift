@@ -190,16 +190,16 @@ final class CaptureCoordinator {
         do {
             let score = try scorer.score(taps: taps)
             let accelFileURL = accel.flatMap { writeAccelerometer($0.samples) }
-            melons.append(
-                CapturedMelon(
-                    id: UUID(),
-                    capturedAt: Date(),
-                    taps: taps,
-                    score: score,
-                    audioFileURL: mic?.fileURL,
-                    accelerometerFileURL: accelFileURL
-                )
+            let captured = CapturedMelon(
+                id: UUID(),
+                capturedAt: Date(),
+                taps: taps,
+                score: score,
+                audioFileURL: mic?.fileURL,
+                accelerometerFileURL: accelFileURL
             )
+            melons.append(captured)
+            WatchSyncService.shared.send(captured)
             state = .idle
         } catch ScoringError.insufficientTaps(let found, let required) {
             state = .failed("Only \(found) of \(required) taps were usable. Try again.")
