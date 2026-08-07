@@ -78,9 +78,15 @@ public enum FeatureExtractor {
             toHz: AnalysisConstants.bandHighHz
         ))
 
-        // Guard the division. A window with no high-band energy at all is reported at the
-        // top of the reference range rather than as infinity.
-        guard high > 0 else { return AnalysisConstants.lowHighRatioReferenceRange.upperBound }
+        // A window with no high-band energy at all has a mathematically infinite ratio; report
+        // that directly rather than borrowing the scorer's normalisation range as a stand-in.
+        // This extractor has no business knowing what range `PhysicsScorer` treats as "maximally
+        // ripe" — that range is retuned independently of this file, and using it here as a
+        // sentinel would let a scorer retune silently change what a degenerate window measures.
+        // `PhysicsScorer.normalise` already clamps any value at or above its reference range's
+        // upper bound to 1.0, so `.infinity` reaches the same scored outcome the old sentinel
+        // did, without the extractor depending on the scorer's constant to get there.
+        guard high > 0 else { return .infinity }
         return low / high
     }
 
@@ -88,8 +94,8 @@ public enum FeatureExtractor {
     /// a faster-fading signal yields a larger number. Frames before the loudest one are
     /// discarded — the attack is not part of the decay.
     static func decayRate(of samples: [Float], sampleRate: Double) -> Float {
-        let frameLength = max(AnalysisConstants.minimumFrameLengthSamples, Int(AnalysisConstants.onsetFrameSeconds * sampleRate))
-        let hop = max(AnalysisConstants.minimumHopSamples, Int(AnalysisConstants.onsetHopSeconds * sampleRate))
+        let frameLength = max(AnalysisConstants.minimumFrameLengthSamples, Int(AnalysisConstants.decayFrameSeconds * sampleRate))
+        let hop = max(AnalysisConstants.minimumHopSamples, Int(AnalysisConstants.decayHopSeconds * sampleRate))
         guard samples.count >= frameLength * AnalysisConstants.decayMinimumFitPoints else { return 0 }
 
         var times: [Float] = []

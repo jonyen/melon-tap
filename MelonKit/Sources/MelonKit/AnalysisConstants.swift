@@ -43,6 +43,16 @@ public enum AnalysisConstants {
 
     // MARK: Decay analysis
 
+    /// Length of the RMS analysis frame used to fit the decay envelope, in seconds. Deliberately
+    /// the same value as `onsetFrameSeconds` today, but kept as its own constant: the two were
+    /// last retuned together during an onset-threshold rework, and nothing links them — a future
+    /// retune of the onset grid must not silently drag the decay fit's frame grid along with it.
+    public static let decayFrameSeconds: Double = 0.005
+
+    /// Hop between successive RMS frames used to fit the decay envelope, in seconds. See
+    /// `decayFrameSeconds`.
+    public static let decayHopSeconds: Double = 0.0025
+
     /// Minimum frame length for RMS calculation, in samples. Floors the computed length to avoid tiny frames.
     public static let minimumFrameLengthSamples: Int = 8
 
