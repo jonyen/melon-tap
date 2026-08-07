@@ -1,22 +1,5 @@
 import Foundation
 
-/// Both raw streams from one melon capture, before any feature extraction.
-///
-/// The two channels are not time-aligned and are not guaranteed equal length: the microphone
-/// times out at exactly its requested duration, while the accelerometer's batched delivery can
-/// run up to one batch interval longer (see `AccelerometerRecorder.record(duration:)`). Index
-/// each channel by its own sample rate rather than assuming a shared timebase.
-struct RawCapture {
-    let accelerometer: [Float]?
-    let accelerometerSampleRate: Double
-    let microphone: [Float]?
-    let microphoneSampleRate: Double
-    /// On-disk copy of the audio, kept for re-analysis with a better extractor later.
-    let audioFileURL: URL?
-    /// On-disk copy of the accelerometer magnitudes, same reason.
-    let accelerometerFileURL: URL?
-}
-
 enum CaptureError: LocalizedError, Equatable {
     case highRateMotionUnavailable
     case healthKitDenied

@@ -161,6 +161,15 @@ final class CaptureCoordinator {
         }
     }
 
+    /// Turns the two raw channels into a scored, ranked melon.
+    ///
+    /// The two channels are not time-aligned and are not guaranteed equal length: the
+    /// microphone times out at exactly its requested duration, while the accelerometer's
+    /// batched delivery can run up to one batch interval longer (see
+    /// `AccelerometerRecorder.record(duration:)`). Each channel must be indexed by its own
+    /// sample rate rather than assuming a shared timebase — see `convert(_:to:)` below, which
+    /// every onset index goes through before it is used against a channel other than the one it
+    /// was detected on.
     private func analyse(
         accelerometer accel: (samples: [Float], sampleRate: Double)?,
         microphone mic: (samples: [Float], sampleRate: Double, fileURL: URL)?
