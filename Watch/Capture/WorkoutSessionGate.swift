@@ -70,16 +70,29 @@ final class WorkoutSessionGate: NSObject, HKWorkoutSessionDelegate {
         session.delegate = self
         self.session = session
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.startContinuation = continuation
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                self.startContinuation = continuation
 
-            self.timeoutTask = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(AnalysisConstants.workoutSessionStartTimeoutSeconds))
-                guard !Task.isCancelled else { return }
-                self.finishStarting(.failure(CaptureError.other("The workout session did not start in time.")))
+                self.timeoutTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(AnalysisConstants.workoutSessionStartTimeoutSeconds))
+                    guard !Task.isCancelled else { return }
+                    self.finishStarting(.failure(CaptureError.other("The workout session did not start in time.")))
+                }
+
+                session.startActivity(with: Date())
             }
-
-            session.startActivity(with: Date())
+        } catch {
+            // The session either timed out or reported a failure through the delegate — in both
+            // cases it may still be sitting in (or on its way to) `.running`, since those
+            // transitions race the continuation rather than being cancelled by it. Ending it here
+            // and clearing the reference is what makes `open()` safe to call again: without this,
+            // a second `HKWorkoutSession` would overwrite `self.session` while the first is still
+            // live, leaking it (and its battery draw) for the rest of the app's run, since nothing
+            // else ever holds a reference to end it.
+            session.end()
+            self.session = nil
+            throw error
         }
     }
 
