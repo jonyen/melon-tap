@@ -16,5 +16,9 @@
     <string>Starts a brief workout session, which is what unlocks the high-rate motion sensor. No health data is read or saved.</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>Starts a brief workout session, which is what unlocks the high-rate motion sensor. No workout is saved.</string>
+    <key>WKBackgroundModes</key>
+    <array>
+        <string>workout-processing</string>
+    </array>
 </dict>
 </plist>
