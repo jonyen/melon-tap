@@ -18,10 +18,12 @@ struct MelonPayload: Codable, Identifiable, Sendable {
 
 /// Sends scored melons to the phone. Features go immediately; raw files go opportunistically.
 ///
-/// `@unchecked Sendable`: this class holds no mutable state of its own (`send` only reads its
-/// argument and talks to `WCSession`, which is thread-safe), so the `static let shared` singleton
-/// required by Swift 6's global-state check is safe without actor isolation.
-final class WatchSyncService: NSObject, WCSessionDelegate, @unchecked Sendable {
+/// Isolated to the main actor so the compiler enforces that `shared` and any future stored state
+/// are only ever touched from one thread — `WCSession` invokes delegate methods off the main
+/// thread, so the one delegate method below is `nonisolated` and does no actor-isolated work of
+/// its own, since this class carries no mutable state to protect either way.
+@MainActor
+final class WatchSyncService: NSObject, WCSessionDelegate {
 
     static let shared = WatchSyncService()
 
@@ -44,24 +46,30 @@ final class WatchSyncService: NSObject, WCSessionDelegate, @unchecked Sendable {
             accelerometerFileName: melon.accelerometerFileURL?.lastPathComponent
         )
 
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        let message: [String: Any] = ["melon": data]
+        // The feature message and the raw file transfers below are independent paths: a failure
+        // encoding or sending the message (this `if let`) must not skip the file transfers, and
+        // vice versa. They used to share a single `guard let data = ... else { return }`, which
+        // meant an encode failure silently dropped the raw files too.
+        if let data = try? JSONEncoder().encode(payload) {
+            let message: [String: Any] = ["melon": data]
 
-        // sendMessage is immediate but requires reachability; transferUserInfo queues and
-        // survives the phone being in a pocket, asleep, or out of range.
-        if WCSession.default.isReachable {
-            WCSession.default.sendMessage(message, replyHandler: nil) { _ in
+            // sendMessage is immediate but requires reachability; transferUserInfo queues and
+            // survives the phone being in a pocket, asleep, or out of range.
+            if WCSession.default.isReachable {
+                WCSession.default.sendMessage(message, replyHandler: nil) { _ in
+                    WCSession.default.transferUserInfo(message)
+                }
+            } else {
                 WCSession.default.transferUserInfo(message)
             }
-        } else {
-            WCSession.default.transferUserInfo(message)
         }
 
-        // Raw signals are large. Nothing in the UI waits on these.
+        // Raw signals are large. Nothing in the UI waits on these, and they are sent
+        // unconditionally regardless of whether the feature message above encoded or sent.
         for url in [melon.audioFileURL, melon.accelerometerFileURL].compactMap({ $0 }) {
             WCSession.default.transferFile(url, metadata: ["melonID": melon.id.uuidString])
         }
     }
 
-    func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
 }

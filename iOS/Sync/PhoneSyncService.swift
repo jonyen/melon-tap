@@ -19,13 +19,15 @@ struct MelonPayload: Codable, Identifiable, Sendable {
 /// Receives melons from the Watch. Delivers payloads through `onMelonReceived` so that the
 /// SwiftData layer, not this service, decides how they are stored.
 ///
-/// `@unchecked Sendable`: the delegate methods below arrive on a WatchConnectivity background
-/// queue, not the main thread, but none of them touch `receivedMelons` or invoke the callbacks
-/// directly — each hands off to `Task { @MainActor in ... }` first. That funnels every mutation
-/// through the main actor, which is what makes the `static let shared` singleton Swift 6 requires
-/// safe despite this class not being actor-isolated itself.
+/// Isolated to the main actor: `receivedMelons` and the two callback properties are all
+/// main-actor-isolated stored state, so the compiler — not a doc comment — rejects any off-main
+/// read or write of them, including an off-main assignment of `onMelonReceived` or
+/// `onFileReceived`. `WCSession` invokes its delegate methods off the main thread, so each one is
+/// `nonisolated` and does only thread-agnostic work (decoding, file I/O) before hopping to the
+/// main actor via `Task { @MainActor in ... }` to touch the actor-isolated state above.
+@MainActor
 @Observable
-final class PhoneSyncService: NSObject, WCSessionDelegate, @unchecked Sendable {
+final class PhoneSyncService: NSObject, WCSessionDelegate {
 
     static let shared = PhoneSyncService()
 
@@ -44,7 +46,7 @@ final class PhoneSyncService: NSObject, WCSessionDelegate, @unchecked Sendable {
         WCSession.default.activate()
     }
 
-    private func handle(_ message: [String: Any]) {
+    private nonisolated func handle(_ message: [String: Any]) {
         guard let data = message["melon"] as? Data,
               let payload = try? JSONDecoder().decode(MelonPayload.self, from: data) else { return }
         Task { @MainActor in
@@ -53,15 +55,15 @@ final class PhoneSyncService: NSObject, WCSessionDelegate, @unchecked Sendable {
         }
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         handle(message)
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         handle(userInfo)
     }
 
-    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
         guard let idString = file.metadata?["melonID"] as? String,
               let id = UUID(uuidString: idString) else { return }
 
@@ -69,16 +71,21 @@ final class PhoneSyncService: NSObject, WCSessionDelegate, @unchecked Sendable {
         let destination = URL.documentsDirectory
             .appendingPathComponent(file.fileURL.lastPathComponent)
         try? FileManager.default.removeItem(at: destination)
-        guard (try? FileManager.default.copyItem(at: file.fileURL, to: destination)) != nil else { return }
+        // If the copy fails (disk full, permissions), the file is simply not delivered — logged
+        // here so the loss is visible rather than silent.
+        guard (try? FileManager.default.copyItem(at: file.fileURL, to: destination)) != nil else {
+            print("PhoneSyncService: failed to copy received file for melon \(id)")
+            return
+        }
 
         Task { @MainActor in
             self.onFileReceived?(id, destination)
         }
     }
 
-    func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
-    func sessionDidBecomeInactive(_ session: WCSession) {}
-    func sessionDidDeactivate(_ session: WCSession) {
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
     }
 }
