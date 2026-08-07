@@ -67,6 +67,10 @@ public enum AnalysisConstants {
     /// trusted. Below it, the taps are buried in ambient noise and the channel is discarded.
     public static let minimumTapToNoiseRatio: Float = 4
 
+    /// Frame count per `AVAudioEngine` tap buffer while recording the microphone. Larger buffers
+    /// reduce callback overhead at the cost of latency between the sound and its capture.
+    public static let microphoneTapBufferFrames: Int = 4096
+
     // MARK: Scoring
 
     /// Peak frequency range used to normalise that feature to 0...1. Lower peak reads as riper.
