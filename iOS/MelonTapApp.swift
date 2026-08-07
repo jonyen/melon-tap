@@ -120,14 +120,19 @@ struct MelonTapApp: App {
 
                 context.insert(melon)
 
-                // Attach any raw files that beat this melon's own feature payload here.
-                if let files = pendingFiles.removeValue(forKey: payload.id) {
+                // Attach any raw files that beat this melon's own feature payload here. Left in
+                // `pendingFiles` until the save below actually succeeds — removing it earlier
+                // would lose the files for good if `save()` throws, since a retry would find
+                // `existing` already non-empty (the melon is in the context from the failed
+                // insert) and never reach this attach step again.
+                if let files = pendingFiles[payload.id] {
                     for url in files {
                         attach(url, to: melon)
                     }
                 }
 
                 try context.save()
+                pendingFiles.removeValue(forKey: payload.id)
             } catch {
                 // A thrown fetch means a duplicate cannot be ruled out; fail closed rather than
                 // risk inserting the same melon twice into a session's ranking.
