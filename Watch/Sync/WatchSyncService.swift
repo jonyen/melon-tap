@@ -6,6 +6,11 @@ import WatchConnectivity
 /// so both sides can decode it without sharing a module.
 struct MelonPayload: Codable, Identifiable, Sendable {
     let id: UUID
+    /// The bin visit ("New Bin" boundary) this melon was captured under. Optional only so a
+    /// payload still in flight through the OS-persisted `transferUserInfo` queue from before this
+    /// field existed can still decode; a freshly captured melon always sets it. The phone falls
+    /// back to time-proximity grouping when this is nil.
+    let sessionID: UUID?
     let capturedAt: Date
     let taps: [TapFeatures]
     let scoreValue: Float
@@ -58,6 +63,7 @@ final class WatchSyncService: NSObject, WCSessionDelegate {
     private func transmit(_ melon: CapturedMelon) {
         let payload = MelonPayload(
             id: melon.id,
+            sessionID: melon.sessionID,
             capturedAt: melon.capturedAt,
             taps: melon.taps,
             scoreValue: melon.score.value,

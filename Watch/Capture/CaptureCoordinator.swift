@@ -5,6 +5,10 @@ import Observation
 /// One melon as captured and scored on the wrist.
 struct CapturedMelon: Identifiable, Sendable {
     let id: UUID
+    /// The bin visit this melon was captured under. Stamped from `CaptureCoordinator.sessionID`
+    /// so the phone can group melons by the user's explicit "New Bin" boundary instead of
+    /// inferring it from capture-time proximity.
+    let sessionID: UUID
     let capturedAt: Date
     let taps: [TapFeatures]
     let score: RipenessScore
@@ -29,6 +33,12 @@ final class CaptureCoordinator {
     private(set) var state: CaptureState = .idle
     private(set) var lastWarning: String?
 
+    /// The current bin visit. Every `CapturedMelon` produced while this value is current is
+    /// stamped with it, so the phone can tell which melons came from the same "New Bin" boundary
+    /// without guessing from capture timestamps. Minted fresh here (covering the value at init)
+    /// and again in `startNewSession()`.
+    private(set) var sessionID = UUID()
+
     private let gate = WorkoutSessionGate()
     private let accelerometer = AccelerometerRecorder()
     private let microphone = MicrophoneRecorder()
@@ -43,6 +53,7 @@ final class CaptureCoordinator {
         melons.removeAll()
         state = .idle
         lastWarning = nil
+        sessionID = UUID()
     }
 
     func capture() async {
@@ -222,6 +233,7 @@ final class CaptureCoordinator {
             let accelFileURL = accel.flatMap { writeAccelerometer($0.samples) }
             let captured = CapturedMelon(
                 id: UUID(),
+                sessionID: sessionID,
                 capturedAt: Date(),
                 taps: taps,
                 score: score,

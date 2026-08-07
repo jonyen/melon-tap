@@ -27,13 +27,19 @@ struct MelonTapApp: App {
         .modelContainer(container)
     }
 
-    /// Melons arriving from the Watch are grouped by proximity to other sessions' start times:
-    /// the nearest session whose `startedAt` is within `sessionGapSeconds` of `payload.capturedAt`
-    /// in either direction, or a new session if none qualifies. Keying off the melon's own capture
-    /// timestamp — not arrival order — matters because `transferUserInfo` can deliver a melon long
-    /// after it was captured (phone asleep, out of range); a symmetric, nearest-session match keeps
-    /// a late-arriving melon in the bin it was actually captured in instead of merging into
-    /// whatever session happens to already exist.
+    /// Melons arriving from the Watch are grouped primarily by `payload.sessionID`, the user's
+    /// explicit "New Bin" boundary: the session already carrying that id, or a new session minted
+    /// for it if none exists yet. This is what actually enforces the app's core premise — melons
+    /// are only ever ranked against others from the same bin — because unlike the fallback below
+    /// it cannot merge or split a bin visit based on timing.
+    ///
+    /// Only a payload with no session id (queued on the Watch before this field existed) falls
+    /// back to proximity: the nearest session whose `startedAt` is within `sessionGapSeconds` of
+    /// `payload.capturedAt` in either direction, or a new session if none qualifies. Keying off
+    /// the melon's own capture timestamp — not arrival order — matters because `transferUserInfo`
+    /// can deliver a melon long after it was captured (phone asleep, out of range); a symmetric,
+    /// nearest-session match keeps a late-arriving melon in the bin it was actually captured in
+    /// instead of merging into whatever session happens to already exist.
     private func configureSync() {
         let context = container.mainContext
 
@@ -46,25 +52,40 @@ struct MelonTapApp: App {
 
                 let melon = Melon.make(from: payload)
 
-                let gap = MelonSession.sessionGapSeconds
-                let lowerBound = payload.capturedAt.addingTimeInterval(-gap)
-                let upperBound = payload.capturedAt.addingTimeInterval(gap)
-                let candidates = try context.fetch(
-                    FetchDescriptor<MelonSession>(
-                        predicate: #Predicate { $0.startedAt >= lowerBound && $0.startedAt <= upperBound }
+                if let sessionID = payload.sessionID {
+                    let matches = try context.fetch(
+                        FetchDescriptor<MelonSession>(
+                            predicate: #Predicate { $0.sessionID == sessionID }
+                        )
                     )
-                )
-                let nearest = candidates.min {
-                    abs($0.startedAt.timeIntervalSince(payload.capturedAt))
-                        < abs($1.startedAt.timeIntervalSince(payload.capturedAt))
-                }
-
-                if let nearest {
-                    melon.session = nearest
+                    if let match = matches.first {
+                        melon.session = match
+                    } else {
+                        let session = MelonSession(startedAt: payload.capturedAt, sessionID: sessionID)
+                        context.insert(session)
+                        melon.session = session
+                    }
                 } else {
-                    let session = MelonSession(startedAt: payload.capturedAt)
-                    context.insert(session)
-                    melon.session = session
+                    let gap = MelonSession.sessionGapSeconds
+                    let lowerBound = payload.capturedAt.addingTimeInterval(-gap)
+                    let upperBound = payload.capturedAt.addingTimeInterval(gap)
+                    let candidates = try context.fetch(
+                        FetchDescriptor<MelonSession>(
+                            predicate: #Predicate { $0.startedAt >= lowerBound && $0.startedAt <= upperBound }
+                        )
+                    )
+                    let nearest = candidates.min {
+                        abs($0.startedAt.timeIntervalSince(payload.capturedAt))
+                            < abs($1.startedAt.timeIntervalSince(payload.capturedAt))
+                    }
+
+                    if let nearest {
+                        melon.session = nearest
+                    } else {
+                        let session = MelonSession(startedAt: payload.capturedAt)
+                        context.insert(session)
+                        melon.session = session
+                    }
                 }
 
                 context.insert(melon)

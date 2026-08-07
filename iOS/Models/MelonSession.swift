@@ -9,12 +9,17 @@ final class MelonSession {
     var startedAt: Date
     var storeName: String?
 
+    /// The Watch-minted "New Bin" boundary this session was created for. Nil for a session
+    /// created by the time-proximity fallback, for a payload that arrived without a session id.
+    var sessionID: UUID?
+
     @Relationship(deleteRule: .cascade, inverse: \Melon.session)
     var melons: [Melon] = []
 
-    init(startedAt: Date = Date(), storeName: String? = nil) {
+    init(startedAt: Date = Date(), storeName: String? = nil, sessionID: UUID? = nil) {
         self.startedAt = startedAt
         self.storeName = storeName
+        self.sessionID = sessionID
     }
 
     var ranked: [Melon] {
