@@ -36,18 +36,58 @@ final class MicrophoneRecorder {
 
     private let engine = AVAudioEngine()
 
-    func record(duration: Double) async throws -> (samples: [Float], sampleRate: Double, fileURL: URL) {
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement)
-        try session.setActive(true)
-        // Guarantees the session is deactivated on every exit from here on — including the
-        // permission-denied throw below — not just the happy path.
-        defer { try? session.setActive(false) }
+    /// Result of the last `prepareForRecording()`, consumed by `record(duration:)`. `nil` means
+    /// `prepareForRecording()` has not run yet this capture.
+    private var permissionGranted: Bool?
+    /// Set when `prepareForRecording()`'s own `setCategory`/`setActive` throws, so `record`
+    /// can surface it instead of silently proceeding on a session that was never activated.
+    private var sessionPrepareError: Error?
 
+    /// Requests microphone permission and activates the audio session, both ahead of time.
+    ///
+    /// `CaptureCoordinator.capture()` calls this once, before it starts the accelerometer and
+    /// microphone recording concurrently. `AVAudioApplication.requestRecordPermission()` suspends
+    /// for as long as the user takes to answer the system dialog on first launch — unbounded —
+    /// and running that inside the concurrent section let the accelerometer record its whole
+    /// four-second window while the microphone had not even started. Resolving permission and
+    /// warming the session here means the concurrent section contains only the two
+    /// `record(duration:)` calls, with no unbounded suspension on either side of the race.
+    ///
+    /// Safe to call more than once: the OS only ever shows the permission dialog once and
+    /// returns immediately on every later call, and activating an already-active session is a
+    /// cheap no-op.
+    func prepareForRecording() async {
         // AVAudioApplication is the watchOS 11 permission API. AVAudioSession.requestRecordPermission
         // is deprecated and would emit a warning.
-        let granted = await AVAudioApplication.requestRecordPermission()
-        guard granted else { throw CaptureError.microphoneDenied }
+        permissionGranted = await AVAudioApplication.requestRecordPermission()
+        guard permissionGranted == true else {
+            sessionPrepareError = nil
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
+            sessionPrepareError = nil
+        } catch {
+            sessionPrepareError = error
+        }
+    }
+
+    func record(duration: Double) async throws -> (samples: [Float], sampleRate: Double, fileURL: URL) {
+        // Normally already resolved by `prepareForRecording()`, called ahead of time by
+        // `CaptureCoordinator.capture()` before either recorder starts. Falling back here keeps
+        // this method correct on its own — for direct callers, tests, and so on.
+        if permissionGranted == nil {
+            await prepareForRecording()
+        }
+        guard permissionGranted == true else { throw CaptureError.microphoneDenied }
+        if let sessionPrepareError { throw sessionPrepareError }
+
+        let session = AVAudioSession.sharedInstance()
+        // Guarantees the session — activated by `prepareForRecording()` above — is deactivated
+        // on every exit from here on, not just the happy path.
+        defer { try? session.setActive(false) }
 
         let input = engine.inputNode
         // Use the hardware's own format. Watch microphones do not all run at the same rate,

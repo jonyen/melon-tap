@@ -49,6 +49,14 @@ final class CaptureCoordinator {
         state = .recording
         lastWarning = nil
 
+        // Resolves microphone permission and warms the audio session before either recorder
+        // starts. `AVAudioApplication.requestRecordPermission()` suspends for as long as the
+        // user takes to answer the system dialog on first launch — unbounded — so it cannot run
+        // inside the concurrent section below without letting the accelerometer's whole
+        // four-second window elapse while the microphone has not even started. See
+        // `MicrophoneRecorder.prepareForRecording()`.
+        await microphone.prepareForRecording()
+
         // The accelerometer path is best-effort. A Series 7 or a HealthKit refusal degrades
         // to microphone-only capture and says so, rather than failing the capture.
         var gateOpened = false
@@ -66,14 +74,16 @@ final class CaptureCoordinator {
         // Recording them one after another (open gate, await the accelerometer to finish, then
         // await the microphone to finish) would have the user tap during one four-second window
         // and again during an unrelated later one; the onset index conversion in `analyse`
-        // assumes both channels started at approximately the same instant. Declaring both
-        // `async let` bindings before awaiting either starts both `record(duration:)` calls
-        // before either one's four-second body runs, so the skew between them is bounded by
-        // each recorder's own (short, synchronous) setup work rather than by capture duration —
-        // not a guarantee of true parallel execution, since both recorders are `@MainActor` and
-        // so interleave on the same serial executor at suspension points. How small the
-        // resulting skew is in practice is a hardware question, answered by on-device testing,
-        // not by this comment.
+        // assumes both channels started at approximately the same instant. This section now
+        // contains only the two `record(duration:)` calls — permission and session setup already
+        // happened above — so the skew between them is bounded by each recorder's own remaining
+        // (short, synchronous) setup work (CoreMotion stream start on one side, AVAudioEngine
+        // prepare/start on the other) rather than by an unbounded permission prompt or by capture
+        // duration. Declaring both `async let` bindings before awaiting either starts both
+        // `record(duration:)` calls before either one's four-second body runs, but this is not a
+        // guarantee of true parallel execution: both recorders are `@MainActor` and so interleave
+        // on the same serial executor at suspension points. How small the resulting skew is in
+        // practice is a hardware question, answered by on-device testing, not by this comment.
         async let accelOutcome = attemptAccelerometer(gateOpened: gateOpened)
         async let micOutcome = attemptMicrophone()
         let (accelResultOutcome, micResultOutcome) = await (accelOutcome, micOutcome)
