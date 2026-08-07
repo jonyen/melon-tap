@@ -66,6 +66,17 @@ struct CaptureView: View {
                         SessionRankingView(coordinator: coordinator)
                     }
                 }
+
+                // Always reachable: the screen scrolls, and the one time you need
+                // the instructions is mid-aisle with a melon in your other hand.
+                NavigationLink {
+                    HowToUseView()
+                } label: {
+                    Label("How to Use", systemImage: "questionmark.circle")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
             .padding()
             .navigationTitle("Melon Tap")

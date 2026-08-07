@@ -24,6 +24,8 @@ struct MelonTapApp: App {
                     .tabItem { Label("Sessions", systemImage: "list.bullet") }
                 UnlabeledMelonsView()
                     .tabItem { Label("To Label", systemImage: "questionmark.circle") }
+                HowItWorksView()
+                    .tabItem { Label("How It Works", systemImage: "book") }
             }
         }
         .modelContainer(container)
