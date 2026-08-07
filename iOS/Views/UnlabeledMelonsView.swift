@@ -26,7 +26,11 @@ struct UnlabeledMelonsView: View {
                         ForEach(Outcome.allCases) { outcome in
                             Button(outcome.label) {
                                 melon.outcome = outcome
-                                try? context.save()
+                                do {
+                                    try context.save()
+                                } catch {
+                                    print("UnlabeledMelonsView: failed to save outcome for melon \(melon.id): \(error)")
+                                }
                             }
                             .buttonStyle(.bordered)
                             .font(.caption)

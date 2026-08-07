@@ -27,37 +27,53 @@ struct MelonTapApp: App {
         .modelContainer(container)
     }
 
-    /// Melons arriving from the Watch are appended to the most recent session if it is still
-    /// open, otherwise a new session is started. Grouping by arrival time avoids needing any
-    /// session-management UI on the wrist.
+    /// Melons arriving from the Watch are grouped by proximity to other sessions' start times:
+    /// the nearest session whose `startedAt` is within `sessionGapSeconds` of `payload.capturedAt`
+    /// in either direction, or a new session if none qualifies. Keying off the melon's own capture
+    /// timestamp — not arrival order — matters because `transferUserInfo` can deliver a melon long
+    /// after it was captured (phone asleep, out of range); a symmetric, nearest-session match keeps
+    /// a late-arriving melon in the bin it was actually captured in instead of merging into
+    /// whatever session happens to already exist.
     private func configureSync() {
-        let context = ModelContext(container)
+        let context = container.mainContext
 
         PhoneSyncService.shared.onMelonReceived = { payload in
-            let existing = try? context.fetch(
-                FetchDescriptor<Melon>(predicate: #Predicate { $0.id == payload.id })
-            )
-            guard existing?.isEmpty ?? true else { return }
+            do {
+                let existing = try context.fetch(
+                    FetchDescriptor<Melon>(predicate: #Predicate { $0.id == payload.id })
+                )
+                guard existing.isEmpty else { return }
 
-            let melon = Melon.make(from: payload)
+                let melon = Melon.make(from: payload)
 
-            var descriptor = FetchDescriptor<MelonSession>(
-                sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
-            )
-            descriptor.fetchLimit = 1
-            let latest = try? context.fetch(descriptor).first
+                let gap = MelonSession.sessionGapSeconds
+                let lowerBound = payload.capturedAt.addingTimeInterval(-gap)
+                let upperBound = payload.capturedAt.addingTimeInterval(gap)
+                let candidates = try context.fetch(
+                    FetchDescriptor<MelonSession>(
+                        predicate: #Predicate { $0.startedAt >= lowerBound && $0.startedAt <= upperBound }
+                    )
+                )
+                let nearest = candidates.min {
+                    abs($0.startedAt.timeIntervalSince(payload.capturedAt))
+                        < abs($1.startedAt.timeIntervalSince(payload.capturedAt))
+                }
 
-            if let latest,
-               payload.capturedAt.timeIntervalSince(latest.startedAt) < MelonSession.sessionGapSeconds {
-                melon.session = latest
-            } else {
-                let session = MelonSession(startedAt: payload.capturedAt)
-                context.insert(session)
-                melon.session = session
+                if let nearest {
+                    melon.session = nearest
+                } else {
+                    let session = MelonSession(startedAt: payload.capturedAt)
+                    context.insert(session)
+                    melon.session = session
+                }
+
+                context.insert(melon)
+                try context.save()
+            } catch {
+                // A thrown fetch means a duplicate cannot be ruled out; fail closed rather than
+                // risk inserting the same melon twice into a session's ranking.
+                print("MelonTapApp: failed to persist received melon \(payload.id): \(error)")
             }
-
-            context.insert(melon)
-            try? context.save()
         }
 
         PhoneSyncService.shared.onFileReceived = { id, url in
@@ -70,7 +86,11 @@ struct MelonTapApp: App {
             } else {
                 melon.accelerometerFileName = url.lastPathComponent
             }
-            try? context.save()
+            do {
+                try context.save()
+            } catch {
+                print("MelonTapApp: failed to save file association for melon \(id): \(error)")
+            }
         }
     }
 }
