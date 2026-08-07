@@ -1,10 +1,17 @@
 import Accelerate
 import Foundation
 
-/// Magnitude spectrum of a real signal, produced by a Hann-windowed DFT.
+/// Magnitude spectrum of a real signal, produced by a Hann-windowed FFT (`vDSP_fft_zrip`,
+/// Accelerate's packed real-FFT routine).
 public struct Spectrum: Sendable {
 
     /// Magnitudes for bins 0 ..< transformLength/2.
+    ///
+    /// `magnitudes[0]` is not an ordinary bin: `vDSP_fft_zrip`'s packed real-FFT layout packs
+    /// the DC term and the Nyquist term into that one slot together, so it must never be read
+    /// directly. It is safe to ignore here only because `binRange(fromHz:toHz:)` clamps its
+    /// lower bound to `max(1, ...)` and so never yields bin 0 — every other member of this type
+    /// reads `magnitudes` exclusively through that method.
     public let magnitudes: [Float]
 
     /// Frequency spacing between adjacent bins, in Hz.

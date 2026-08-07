@@ -127,5 +127,9 @@ public enum AnalysisConstants {
     /// what's actually observed: three consistent taps deviate by 0, a genuine mishit (e.g. a
     /// tap caught on the rind edge instead of the flesh) deviates by roughly 0.68 in the
     /// reference fixture, and 0.15 sits well inside that gap.
+    /// UNVALIDATED: the reference fixture above is synthetic, not real mishit data, same as
+    /// `accelerometerChannelWeight`. Unlike that one, this threshold fires silently and, when it
+    /// does, discards a full third of a capture's evidence (one of three taps) from the score.
+    /// Revisit once logged melons have outcome labels.
     public static let outlierDeviationThreshold: Float = 0.15
 }

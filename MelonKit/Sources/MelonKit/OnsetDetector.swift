@@ -62,11 +62,20 @@ public enum OnsetDetector {
         //     over-estimates "ambient" scale whenever the buffer is signal-heavy (e.g. slow
         //     decay with tight inter-tap gaps leaves little true silence), making real attacks
         //     fail to clear it.
-        // The unrectified step magnitude |energies[i] - energies[i-1]| avoids both: it is
-        // essentially never exactly zero for a real decaying or noisy signal (a decay tail
-        // approaches but does not hit exact float32 zero at the decay rates modelled here), so
-        // it isn't zero-inflated, and because it measures a step rather than a level it is
-        // insensitive to the buffer's overall dynamic range.
+        // The unrectified step magnitude |energies[i] - energies[i-1]| avoids both: because it
+        // measures a step rather than a level it is insensitive to the buffer's overall dynamic
+        // range, and for a real decaying or noisy signal it is essentially never exactly zero (a
+        // decay tail approaches but does not hit exact float32 zero at the decay rates modelled
+        // here). Under literal digital silence, though, every step *is* exactly zero:
+        // `stepDeviation` collapses to its 1e-6 floor below, and the resulting threshold is
+        // small enough that ordinary quantisation-level jitter can clear it on many frames at
+        // once. What keeps that from registering as a burst of spurious onsets is not this
+        // statistic — it's the peak-picking further down: a candidate must dominate its own
+        // minimum-separation neighbourhood and clear the minimum gap since the last accepted
+        // onset, so a field of marginal, similarly-sized rises collapses to at most one
+        // acceptance per neighbourhood rather than many. Narrowing that neighbourhood (the
+        // minimum-separation window) later can reintroduce the burst this comment describes;
+        // this statistic alone will not catch it.
         var steps = [Float](repeating: 0, count: energies.count)
         for i in 1..<energies.count {
             steps[i] = abs(energies[i] - energies[i - 1])
