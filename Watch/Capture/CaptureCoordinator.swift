@@ -1,6 +1,7 @@
 import Foundation
 import MelonKit
 import Observation
+import WatchKit
 
 /// One melon as captured and scored on the wrist.
 struct CapturedMelon: Identifiable, Equatable, Sendable {
@@ -20,7 +21,7 @@ enum CaptureState: Equatable {
     case idle
     /// Microphone permission and the workout gate are being resolved. Unbounded on first launch
     /// (the permission dialog) and up to the gate's own timeout — neither is part of the
-    /// four-second recording window, so this is kept distinct from `.recording` rather than
+    /// capture-length recording window, so this is kept distinct from `.recording` rather than
     /// folded into it.
     case preparing
     /// Both recorders have actually started. Carries the instant they started so the view's
@@ -74,7 +75,7 @@ final class CaptureCoordinator {
         // starts. `AVAudioApplication.requestRecordPermission()` suspends for as long as the
         // user takes to answer the system dialog on first launch — unbounded — so it cannot run
         // inside the concurrent section below without letting the accelerometer's whole
-        // four-second window elapse while the microphone has not even started. See
+        // capture window elapse while the microphone has not even started. See
         // `MicrophoneRecorder.prepareForRecording()`.
         await microphone.prepareForRecording()
 
@@ -93,7 +94,7 @@ final class CaptureCoordinator {
         // Both channels must record over the same real-time window, concurrently, so that a
         // tap's accelerometer onset and its microphone onset describe the same physical strike.
         // Recording them one after another (open gate, await the accelerometer to finish, then
-        // await the microphone to finish) would have the user tap during one four-second window
+        // await the microphone to finish) would have the user tap during one capture window
         // and again during an unrelated later one; the onset index conversion in `analyse`
         // assumes both channels started at approximately the same instant. This section now
         // contains only the two `record(duration:)` calls — permission and session setup already
@@ -101,14 +102,16 @@ final class CaptureCoordinator {
         // (short, synchronous) setup work (CoreMotion stream start on one side, AVAudioEngine
         // prepare/start on the other) rather than by an unbounded permission prompt or by capture
         // duration. Declaring both `async let` bindings before awaiting either starts both
-        // `record(duration:)` calls before either one's four-second body runs, but this is not a
+        // `record(duration:)` calls before either one's capture-length body runs, but this is not a
         // guarantee of true parallel execution: both recorders are `@MainActor` and so interleave
         // on the same serial executor at suspension points. How small the resulting skew is in
         // practice is a hardware question, answered by on-device testing, not by this comment.
         state = .recording(start: Date())
         async let accelOutcome = attemptAccelerometer(gateOpened: gateOpened)
         async let micOutcome = attemptMicrophone()
+        let monitor = startTapMonitor()
         let (accelResultOutcome, micResultOutcome) = await (accelOutcome, micOutcome)
+        monitor.cancel()
         if gateOpened { gate.close() }
 
         var accelResult: (samples: [Float], sampleRate: Double)?
@@ -136,6 +139,29 @@ final class CaptureCoordinator {
 
         state = .analysing
         analyse(accelerometer: accelResult, microphone: micResult)
+    }
+
+    /// Watches the microphone's live buffer while both recorders run and, the moment the
+    /// required number of taps is visible, plays a success haptic and asks both recorders to
+    /// finish early — the capture window is a ceiling, not a sentence. Detection here uses the
+    /// microphone only because it is the one channel whose partial samples are observable
+    /// mid-capture (the accelerometer's arrive in opaque ~1 s batches inside its own loop);
+    /// when the microphone is denied or silent the monitor simply never fires and the full
+    /// window runs as before. `analyse` re-detects onsets on the final buffers afterwards, so
+    /// this early exit changes only how long the user waits, never what gets scored.
+    private func startTapMonitor() -> Task<Void, Never> {
+        Task { @MainActor [microphone, accelerometer] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(0.5)) } catch { return }
+                guard let live = microphone.liveCapture() else { continue }
+                let onsets = OnsetDetector.detect(in: live.samples, sampleRate: live.sampleRate)
+                guard onsets.count >= AnalysisConstants.requiredTapCount else { continue }
+                WKInterfaceDevice.current().play(.success)
+                microphone.finishEarly()
+                accelerometer.finishEarly()
+                return
+            }
+        }
     }
 
     /// Records the accelerometer channel. Never attempted when the workout gate did not open,

@@ -18,6 +18,9 @@ final class AccelerometerRecorder {
 
     private let manager = CMBatchedSensorManager()
 
+    /// Set by `finishEarly()`; the batch loop in `record(duration:)` checks it between batches.
+    private var stopEarly = false
+
     /// Records for `duration` seconds. Requires an open `WorkoutSessionGate`.
     ///
     /// The batched stream delivers roughly once per second, and the deadline is only checked
@@ -26,6 +29,7 @@ final class AccelerometerRecorder {
     /// microphone channel's.
     func record(duration: Double) async throws -> (samples: [Float], sampleRate: Double) {
         guard Self.isSupported else { throw CaptureError.highRateMotionUnavailable }
+        stopEarly = false
 
         var samples: [Float] = []
         var firstTimestamp: TimeInterval?
@@ -48,7 +52,7 @@ final class AccelerometerRecorder {
                 if firstTimestamp == nil { firstTimestamp = reading.timestamp }
                 lastTimestamp = reading.timestamp
             }
-            if Date() >= deadline { break }
+            if stopEarly || Date() >= deadline { break }
         }
 
         // Derive the true rate from the timestamps rather than trusting the nominal 800 Hz.
@@ -61,5 +65,11 @@ final class AccelerometerRecorder {
         }
 
         return (samples, sampleRate)
+    }
+
+    /// Asks the in-flight `record(duration:)` to return at the next batch boundary (≤1 s away)
+    /// instead of running out its full window. No-op when no capture is running.
+    func finishEarly() {
+        stopEarly = true
     }
 }

@@ -43,11 +43,14 @@ private final class TapAudioFile: @unchecked Sendable {
 @MainActor
 final class MicrophoneRecorder {
 
-    private let engine = AVAudioEngine()
-
     /// Result of the last `prepareForRecording()`, consumed by `record(duration:)`. `nil` means
     /// `prepareForRecording()` has not run yet this capture.
     private var permissionGranted: Bool?
+    /// The in-flight capture's buffer and rate, published while `record(duration:)` runs so the
+    /// coordinator's live tap monitor can peek at partial audio. `nil` outside a capture.
+    private var liveBuffer: (samples: LockedSampleBuffer, sampleRate: Double)?
+    /// Set by `finishEarly()`; the wait loop in `record(duration:)` checks it each slice.
+    private var stopEarly = false
     /// Set when `prepareForRecording()`'s own `setCategory`/`setActive` throws, so `record`
     /// can surface it instead of silently proceeding on a session that was never activated.
     private var sessionPrepareError: Error?
@@ -58,7 +61,7 @@ final class MicrophoneRecorder {
     /// microphone recording concurrently. `AVAudioApplication.requestRecordPermission()` suspends
     /// for as long as the user takes to answer the system dialog on first launch — unbounded —
     /// and running that inside the concurrent section let the accelerometer record its whole
-    /// four-second window while the microphone had not even started. Resolving permission and
+    /// capture window while the microphone had not even started. Resolving permission and
     /// warming the session here means the concurrent section contains only the two
     /// `record(duration:)` calls, with no unbounded suspension on either side of the race.
     ///
@@ -98,6 +101,11 @@ final class MicrophoneRecorder {
         // on every exit from here on, not just the happy path.
         defer { try? session.setActive(false) }
 
+        // A fresh engine per capture, not one shared across the recorder's lifetime: reusing a
+        // stopped engine's input node for a later capture can abort inside AudioToolbox
+        // (AURemoteIO::Cleanup RPC timeout) when the audio server has torn down the remote IO
+        // unit between captures.
+        let engine = AVAudioEngine()
         let input = engine.inputNode
         // Use the hardware's own format. Watch microphones do not all run at the same rate,
         // and resampling here would only add error.
@@ -112,6 +120,9 @@ final class MicrophoneRecorder {
         // `LockedSampleBuffer` synchronizes both sides.
         let samples = LockedSampleBuffer()
         samples.reserveCapacity(Int(duration * sampleRate))
+        stopEarly = false
+        liveBuffer = (samples, sampleRate)
+        defer { liveBuffer = nil }
 
         // The tap callback runs on AVFAudio's own queue, never the main actor. Without the
         // explicit @Sendable it would inherit this method's @MainActor isolation, and the Swift 6
@@ -142,7 +153,15 @@ final class MicrophoneRecorder {
 
         engine.prepare()
         try engine.start()
-        try await Task.sleep(for: .seconds(duration))
+        // Sliced rather than one long sleep so `finishEarly()` — set by the coordinator's live
+        // tap monitor once enough taps are in — can end the capture within a slice instead of
+        // holding the user for the full window.
+        let sliceSeconds = 0.1
+        var elapsed = 0.0
+        while elapsed < duration && !stopEarly {
+            try await Task.sleep(for: .seconds(min(sliceSeconds, duration - elapsed)))
+            elapsed += sliceSeconds
+        }
 
         // Swift evaluates a `return` expression's operands *before* running `defer` blocks, so
         // reading `samples` here would race the tap's render-thread callback if teardown were
@@ -152,5 +171,17 @@ final class MicrophoneRecorder {
         engine.stop()
 
         return (samples.snapshot(), sampleRate, url)
+    }
+
+    /// Snapshot of the audio captured so far in the current `record(duration:)` call, for live
+    /// onset detection. `nil` when no capture is running.
+    func liveCapture() -> (samples: [Float], sampleRate: Double)? {
+        liveBuffer.map { ($0.samples.snapshot(), $0.sampleRate) }
+    }
+
+    /// Asks the in-flight `record(duration:)` to return at the next slice boundary (≤0.1 s away)
+    /// instead of running out its full window. No-op when no capture is running.
+    func finishEarly() {
+        stopEarly = true
     }
 }

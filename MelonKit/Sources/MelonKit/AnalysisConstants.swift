@@ -79,7 +79,7 @@ public enum AnalysisConstants {
     // MARK: Capture
 
     /// Total capture duration on the Watch, in seconds.
-    public static let captureDurationSeconds: Double = 4.0
+    public static let captureDurationSeconds: Double = 10.0
 
     /// Required number of clean taps per melon. Fewer means refuse to score.
     public static let requiredTapCount: Int = 3
