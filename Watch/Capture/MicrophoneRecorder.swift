@@ -30,6 +30,15 @@ private final class LockedSampleBuffer: @unchecked Sendable {
     }
 }
 
+/// Carries the `AVAudioFile` into the tap's render-thread callback. `AVAudioFile` is not
+/// Sendable, but after creation it is written from exactly one place — the tap callback, which
+/// AVFAudio invokes serially on its own queue — and read again only after `removeTap` has
+/// synchronously guaranteed no further callbacks, so every access is ordered.
+private final class TapAudioFile: @unchecked Sendable {
+    let file: AVAudioFile
+    init(_ file: AVAudioFile) { self.file = file }
+}
+
 /// Captures watch microphone audio into memory and, in parallel, to a file for later re-analysis.
 @MainActor
 final class MicrophoneRecorder {
@@ -104,13 +113,17 @@ final class MicrophoneRecorder {
         let samples = LockedSampleBuffer()
         samples.reserveCapacity(Int(duration * sampleRate))
 
+        // The tap callback runs on AVFAudio's own queue, never the main actor. Without the
+        // explicit @Sendable it would inherit this method's @MainActor isolation, and the Swift 6
+        // runtime's isolation check would trap (dispatch_assert_queue_fail) on the first buffer.
+        let tapFile = TapAudioFile(file)
         input.installTap(
             onBus: 0,
             bufferSize: AVAudioFrameCount(AnalysisConstants.microphoneTapBufferFrames),
             format: format
-        ) { buffer, _ in
+        ) { @Sendable buffer, _ in
             do {
-                try file.write(from: buffer)
+                try tapFile.file.write(from: buffer)
             } catch {
                 print("MicrophoneRecorder: failed to write audio buffer to file: \(error)")
             }
