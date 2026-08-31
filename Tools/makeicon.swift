@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-// Renders the Melon Tap app icon: a watermelon slice, flat edge down.
+// Renders the Melon Tap app icon: a watermelon slice, rind along the bottom.
 // One 1024pt master; Xcode derives every other size from it.
 
 let size = 1024
@@ -24,21 +24,21 @@ let W = CGFloat(size)
 ctx.setFillColor(color(250, 246, 236))
 ctx.fill(CGRect(x: 0, y: 0, width: W, height: W))
 
-// The slice is a semicircle standing on its flat edge. watchOS masks icons to
-// a circle, so the whole slice — including its bottom corners, which sit
-// furthest from centre — has to fit inside that circle's safe area. With this
-// radius the corners land ~0.39W from centre, comfortably inside the mask.
+// The slice hangs from its flat cut edge, so the curved rind sits along the
+// bottom. watchOS masks icons to a circle, so the whole slice — including its
+// top corners, which sit furthest from centre — has to fit inside that
+// circle's safe area. With this radius the corners land comfortably inside.
 let cx = W / 2
-let cy = W * 0.304
+let cy = W * 0.696
 let rSkin: CGFloat = W * 0.392
 let rRind: CGFloat = rSkin * 0.945
 let rFlesh: CGFloat = rSkin * 0.875
 
 func semicircle(radius: CGFloat) -> CGPath {
     let p = CGMutablePath()
-    p.move(to: CGPoint(x: cx - radius, y: cy))
+    p.move(to: CGPoint(x: cx + radius, y: cy))
     p.addArc(center: CGPoint(x: cx, y: cy), radius: radius,
-             startAngle: .pi, endAngle: 0, clockwise: true)
+             startAngle: 0, endAngle: .pi, clockwise: true)
     p.closeSubpath()
     return p
 }
@@ -71,10 +71,10 @@ for (deg, frac) in seeds {
     let a = deg * .pi / 180
     let r = rFlesh * frac
     let x = cx + cos(a) * r
-    let y = cy + sin(a) * r
+    let y = cy - sin(a) * r
     ctx.saveGState()
     ctx.translateBy(x: x, y: y)
-    ctx.rotate(by: a - .pi / 2)
+    ctx.rotate(by: .pi / 2 - a)
     let sw = W * 0.036
     let sh = W * 0.056
     ctx.addEllipse(in: CGRect(x: -sw/2, y: -sh/2, width: sw, height: sh))
